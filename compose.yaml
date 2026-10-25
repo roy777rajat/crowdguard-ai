@@ -1,0 +1,12 @@
+# UNTESTED. Backend only; run the frontend with `npm run dev` for now.
+services:
+  api:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      CROWDGUARD_DB: /data/crowdguard.db
+    volumes:
+      - crowdguard-data:/data
+volumes:
+  crowdguard-data:
