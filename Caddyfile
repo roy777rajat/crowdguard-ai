@@ -1,0 +1,12 @@
+# Plain HTTP on port 80 (no domain needed). Add a domain name here to get automatic HTTPS.
+:80 {
+	encode gzip
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

@@ -1,0 +1,27 @@
+# Production-style stack for a single small server (for example AWS Lightsail).
+#   docker compose -f compose.prod.yaml up -d --build
+# UNTESTED until first run. Demo auth and simulated data by default; no outside model calls unless .env enables them.
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CROWDGUARD_DB: /data/crowdguard.db
+      CROWDGUARD_GALLERY: /app/gallery
+    volumes:
+      - crowdguard-data:/data
+      - ./gallery:/app/gallery
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+volumes:
+  crowdguard-data:
