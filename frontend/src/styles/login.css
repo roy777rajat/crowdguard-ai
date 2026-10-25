@@ -1,0 +1,45 @@
+.lg-wrap { position: relative; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; overflow: hidden; isolation: isolate;
+  background: radial-gradient(120% 90% at 50% 0%, #4a0d1c 0%, #22060f 55%, #12040a 100%); color: #fdf3e3; }
+.lg-bg { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.lg-glow { position: absolute; left: 50%; top: 46%; width: min(900px, 120vw); aspect-ratio: 1; transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, rgba(255, 150, 60, 0.35), rgba(255, 90, 60, 0.12) 55%, transparent 75%); animation: lg-breathe 7s ease-in-out infinite; }
+.lg-mandala { position: absolute; left: 50%; top: 46%; width: min(820px, 130vw); transform: translate(-50%, -50%); color: #ffc65a; opacity: 0.32;
+  animation: lg-spin 140s linear infinite; }
+.lg-petal { position: absolute; top: -30px; width: 12px; height: 18px; border-radius: 80% 0 80% 0; background: linear-gradient(135deg, #ffb703, #fb5607);
+  opacity: 0.55; animation: lg-fall linear infinite; }
+.lg-watermark { position: absolute; bottom: 14px; width: 100%; text-align: center; font-size: clamp(1.1rem, 3vw, 1.8rem); letter-spacing: 0.1em; color: #ffd98a; opacity: 0.35; }
+
+.lg-card { width: min(420px, 100%); padding: 26px 26px 18px; border-radius: 20px;
+  background: rgba(20, 6, 12, 0.42); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid rgba(255, 214, 140, 0.28); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45); }
+.lg-brand { text-align: center; margin-bottom: 14px; }
+.lg-brand h1 { margin: 6px 0 0; font-size: 1.7rem; letter-spacing: 0.02em; }
+.lg-brand h1 span { color: #ffc65a; }
+.lg-brand p { margin: 2px 0 0; font-size: 0.9rem; color: #ffd9a8; opacity: 0.9; }
+.lg-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); margin-bottom: 14px; }
+.lg-tabs button { border: 0; border-radius: 999px; padding: 7px 0; background: transparent; color: inherit; cursor: pointer; font-weight: 600; }
+.lg-tabs button[aria-selected='true'] { background: linear-gradient(135deg, #ff7a3d, #d62839); color: #fff; }
+.lg-card form { display: grid; gap: 10px; }
+.lg-card label { display: grid; gap: 4px; font-size: 0.82rem; color: #ffe8c8; }
+.lg-card input { padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255, 214, 140, 0.3); background: rgba(255, 255, 255, 0.08); color: #fff; font-size: 1rem; }
+.lg-card input:focus-visible { outline: 2px solid #ffc65a; outline-offset: 1px; }
+.lg-submit { margin-top: 4px; padding: 11px; border: 0; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 1rem; color: #fff;
+  background: linear-gradient(135deg, #ff7a3d, #d62839); }
+.lg-submit:disabled { opacity: 0.6; cursor: progress; }
+.lg-submit:hover:not(:disabled) { filter: brightness(1.08); }
+.lg-demo { margin-top: 14px; font-size: 0.78rem; }
+.lg-demo > span { display: block; margin-bottom: 6px; color: #ffd9a8; }
+.lg-demo > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.lg-demo button { padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255, 214, 140, 0.35); background: transparent; color: #ffe8c8; cursor: pointer; font-size: 0.78rem; }
+.lg-demo button:hover { background: rgba(255, 214, 140, 0.15); }
+.lg-small { font-size: 0.75rem; opacity: 0.8; margin: 0; }
+.lg-note { margin-top: 12px; text-align: center; }
+.lg-card .alert { font-size: 0.8rem; }
+
+@keyframes lg-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+@keyframes lg-breathe { 50% { transform: translate(-50%, -50%) scale(1.08); opacity: 0.85; } }
+@keyframes lg-fall { from { transform: translateY(-30px) rotate(0deg); } to { transform: translateY(110vh) rotate(540deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .lg-mandala, .lg-glow, .lg-petal { animation: none; }
+  .lg-petal { display: none; }
+}

@@ -1,0 +1,62 @@
+/* Durga theme for the signed-in app: same warm glass look as the sign-in page.
+   Loaded after global.css, so these tokens replace the old blue ones. Risk colours stay green / amber / red. */
+
+:root {
+  --bg: #fff3e2;
+  --surface: rgba(255, 255, 255, 0.78);
+  --surface-2: rgba(179, 18, 43, 0.06);
+  --ink: #3a1018;
+  --muted: #7d5a52;
+  --line: rgba(150, 70, 40, 0.22);
+  --brand: #b3122b;
+  --brand-ink: #ffffff;
+  --paar: #d62839;
+  --info: #9a5b00;
+  --info-bg: rgba(255, 198, 90, 0.28);
+  --shadow: 0 6px 22px rgba(120, 30, 20, 0.1);
+  --radius: 10px;
+}
+
+:root[data-theme='dark'] {
+  --bg: #1a060d;
+  --surface: rgba(30, 9, 17, 0.66);
+  --surface-2: rgba(255, 214, 140, 0.09);
+  --ink: #fdf3e3;
+  --muted: #dcbf9f;
+  --line: rgba(255, 214, 140, 0.24);
+  --brand: #ffc65a;
+  --brand-ink: #2a0a12;
+  --paar: #ff7a3d;
+  --info: #ffc65a;
+  --info-bg: rgba(255, 198, 90, 0.16);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+body { background: var(--bg); }
+
+.app-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 0%, #fff0d6 0%, #ffe3c2 55%, #ffd7b0 100%); }
+:root[data-theme='dark'] .app-bg { background: radial-gradient(120% 90% at 50% 0%, #4a0d1c 0%, #22060f 55%, #12040a 100%); }
+.app-bg .lg-mandala { opacity: 0.16; color: #b3122b; }
+:root[data-theme='dark'] .app-bg .lg-mandala { opacity: 0.2; color: #ffc65a; }
+.app-bg .lg-glow { opacity: 0.5; }
+.app-bg .lg-watermark { display: none; }
+.app-bg .lg-petal { opacity: 0.3; }
+.shell { position: relative; z-index: 1; }
+
+.sidebar, .topbar { background: var(--surface); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); }
+.card { backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.brand-name { background: linear-gradient(135deg, var(--paar), var(--brand)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+:root[data-theme='dark'] .brand-name { background: linear-gradient(135deg, #ffe08a, #ff9a52); -webkit-background-clip: text; background-clip: text; }
+.nav a { border-radius: 999px; border-left: 0; padding: 8px 14px; }
+.nav a.active { background: linear-gradient(135deg, #ff7a3d, #d62839); color: #fff; font-weight: 600; }
+.nav a:hover:not(.active) { background: var(--surface-2); }
+.btn { border-radius: 999px; }
+.btn.primary { background: linear-gradient(135deg, #ff7a3d, #d62839); border-color: transparent; color: #fff; }
+.tabs button[aria-selected='true'] { background: linear-gradient(135deg, #ff7a3d, #d62839); border-color: transparent; color: #fff; }
+.notice { background: rgba(255, 198, 90, 0.18); border-color: rgba(255, 198, 90, 0.6); }
+input, select { background: var(--surface); }
+:root[data-theme='dark'] option { background: #2a0a12; color: #fdf3e3; }
+.infotip-pop { background: #2a0a12; color: #fdf3e3; border-color: rgba(255, 214, 140, 0.35); }
+:root:not([data-theme='dark']) .infotip-pop { background: #fffaf2; color: #3a1018; }
+h1 { letter-spacing: 0.02em; }
