@@ -1,0 +1,12 @@
+.infotip { position: relative; display: inline-flex; vertical-align: middle; margin-left: 4px; font-weight: 400; }
+.infotip-btn { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid currentColor; background: transparent; color: inherit;
+  font: italic 700 11px/1 Georgia, serif; cursor: help; padding: 0; opacity: 0.75; display: inline-grid; place-items: center; }
+.infotip-btn:hover, .infotip-btn:focus-visible { opacity: 1; outline: 2px solid color-mix(in srgb, currentColor 40%, transparent); outline-offset: 1px; }
+.infotip-pop { position: absolute; z-index: 50; top: 24px; width: min(320px, 80vw); padding: 10px 12px; border-radius: 10px; text-align: left;
+  background: Canvas; color: CanvasText; border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); font-size: 0.82rem; line-height: 1.4; font-style: normal; white-space: normal; }
+.infotip-pop.left { left: -8px; }
+.infotip-pop.right { right: -8px; }
+.infotip-pop strong { display: block; margin-bottom: 4px; font-size: 0.88rem; }
+.infotip-body { display: block; }
+.infotip-body p { margin: 0 0 6px; }
