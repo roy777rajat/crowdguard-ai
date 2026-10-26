@@ -1,4 +1,33 @@
-# CrowdGuard AI
+<h1 align="center">CrowdGuard AI</h1>
+
+<p align="center"><b>Crowd-safety decision support for Durga Puja pandals</b><br>
+Camera counting · forecasting · incidents · an AI assistant you can talk to</p>
+
+<p align="center">
+  <a href="https://skillicons.dev"><img alt="Tech stack: Python, FastAPI, React, TypeScript, Vite, SQLite, Docker, pytest" src="https://skillicons.dev/icons?i=python,fastapi,react,ts,vite,sqlite,docker,pytest&perline=8" /></a>
+</p>
+
+<p align="center">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" />
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" />
+  <img alt="Pydantic v2" src="https://img.shields.io/badge/Pydantic-v2-E92063?logo=pydantic&logoColor=white" />
+  <img alt="React 18" src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" />
+  <img alt="Vite" src="https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white" />
+  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white" />
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white" />
+  <br>
+  <img alt="Meta SAM 3.1" src="https://img.shields.io/badge/Meta-SAM%203.1%20(people%20counting)-0866FF?logo=meta&logoColor=white" />
+  <img alt="Meta Muse Spark" src="https://img.shields.io/badge/Meta-Muse%20Spark%20(explanations%20%26%20assistant)-0866FF?logo=meta&logoColor=white" />
+  <img alt="Meta Muse Voice Transcribe" src="https://img.shields.io/badge/Meta-Muse%20Voice%20Transcribe%20(voice%20input)-0866FF?logo=meta&logoColor=white" />
+</p>
+
+<p align="center">
+  <sub>Backend: Python · FastAPI · Pydantic · SQLite · httpx &nbsp;|&nbsp; Frontend: React · TypeScript · Vite · Vitest &nbsp;|&nbsp;
+  Models: SAM 3.1 · Muse Spark · Muse Voice Transcribe &nbsp;|&nbsp; Quality: pytest · ruff · mypy &nbsp;|&nbsp; Packaging: Docker · Caddy</sub>
+</p>
+
+---
 
 **Crowd-safety decision support for Durga Puja pandals in Kolkata.** CrowdGuard AI watches camera feeds from each
 pandal, counts the people in every zone with Meta's SAM 3.1 vision model, compares the count with safe limits,
@@ -34,6 +63,11 @@ a known risk, yet most committees rely on volunteers watching and shouting. Thre
   exit-bottleneck signal, plus an AI explanation written by Muse Spark.
 - **Operations:** workflow runs, incidents, model-call log (latency, tokens, cost), system health, audit log, settings,
   spend budget, and admin clean-up tools.
+- **AI Assistant:** a chat page where staff ask questions in text or by voice ("Show me unresolved incidents and
+  their pandal names", "Which cameras are currently offline?"). Muse Spark calls 24 read-only tools over the app's own
+  data; answers cite their sources and respect your role. It can also create, update and delete records (pandals,
+  zones, cameras, incidents, settings), but only as proposals: it always asks **Yes / No / Cancel**, and only your own
+  reply makes anything happen (see [docs/assistant-tools.md](docs/assistant-tools.md)).
 - **Roles:** admin, operator, pandal manager (one pandal only), read-only auditor.
 
 ## 3. Models used
@@ -42,6 +76,8 @@ a known risk, yet most committees rely on volunteers watching and shouting. Thre
 |---|---|---|---|
 | People detection and counting | **Meta SAM 3.1** (`sam-3.1`) | Meta Model API, image segmentation with the text prompt `"person"` | About $0.0025 per image. Off unless `CROWDGUARD_DETECTOR=sam31`. |
 | Plain-language explanations | **Meta Muse Spark** (default `muse-spark-1.3`, change with `META_MODEL`) | Meta Model API, Responses API | Describes recorded numbers only; never computes them. Off unless `CROWDGUARD_PROVIDER=meta`. |
+| Assistant chat (tool calling) | **Meta Muse Spark** (same model setting) | Responses API with native function calling | Reads app data through server-side tools; can only *propose* changes, which you confirm with Yes / No / Cancel. Needs `CROWDGUARD_PROVIDER=meta`. |
+| Voice questions | **Meta Muse Voice Transcribe** (`muse-voice-transcribe-1.0`) | REST `POST /v1/asr/transcribe`, recorded WAV clip | $0.18 per hour of audio. Off unless `CROWDGUARD_VOICE=meta`. Audio is not stored. |
 | Forecasting | None (deterministic Python) | `backend/engine/forecast.py` | The language model can never change a count or forecast. |
 
 Both models use the **same Meta API key**. Without a key, the app still runs using a local template provider and a
@@ -60,7 +96,8 @@ simulated detector, so you can try it with no account and no cost.
    vision/     PersonDetector -> Sam31Detector (Meta) | SimulatedDetector
    engine/     deterministic forecast, risk, data quality, exit bottleneck
    observability/  model-call log, prompts, telemetry
-   integrations/   Meta Responses API adapter (Muse Spark)
+   integrations/   Meta Responses API adapter (Muse Spark, incl. tool calling)
+   assistant/  tools (read-only), actions (Yes/No/Cancel writes), orchestrator, Muse Voice Transcribe client
    repositories/ store.py  --->  SQLite (data/crowdguard.db)   [swappable for a cloud database]
         |                                |
         v                                v
@@ -79,7 +116,14 @@ open and started. A server-side capture worker is the planned step for always-on
 
 ## 5. Tech stack
 
-Python 3.10+ · FastAPI · Pydantic v2 · SQLite · httpx · pytest · ruff · mypy · React 18 · TypeScript · Vite · Vitest.
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.10+, FastAPI, Pydantic v2, httpx |
+| Database | SQLite behind a repository layer (swappable) |
+| Frontend | React 18, TypeScript, Vite, React Router |
+| AI models | Meta SAM 3.1, Meta Muse Spark (Responses API + function calling), Meta Muse Voice Transcribe |
+| Quality | pytest, Vitest + Testing Library, ruff, mypy, TypeScript strict |
+| Packaging | Docker, Docker Compose, Caddy (see `compose.prod.yaml`) |
 
 ## 6. Get the code
 
@@ -185,6 +229,9 @@ npm test
 | `SAM_THRESHOLD` | `0.5` | Minimum confidence for a person box |
 | `META_MODEL_API_KEY` | none | Meta Model API key (never commit) |
 | `CROWDGUARD_GALLERY` | `gallery` | Folder holding the `.mp4` files |
+| `CROWDGUARD_VOICE` | `off` | `meta` enables voice input in the AI Assistant |
+| `META_VOICE_API_KEY` | none | Optional separate voice key; defaults to `META_MODEL_API_KEY` |
+| `META_VOICE_MODE` | `ENDPOINTING` | Or `PUSH_TO_TALK`; how Meta segments the recording |
 
 ## 10. Cost and privacy
 
@@ -194,6 +241,19 @@ npm test
 - Frames that show people are sent to Meta when SAM is enabled. Obtain venue and legal approval first. Frames are not stored
   by this app; only counts, latency and status are.
 - The built-in test animation is never sent to a paid model.
+
+### AI Assistant: how to try it
+
+1. In `.env` set `CROWDGUARD_PROVIDER=meta`, `META_MODEL_API_KEY=...` and (for the microphone) `CROWDGUARD_VOICE=meta`.
+2. Start the backend and frontend, sign in, open **AI Assistant** in the sidebar.
+3. Type "Show me unresolved incidents and their pandal names." (run a simulation first so there is data), or press
+   **Speak**, say "Which cameras are currently offline?", check the transcript, edit it if needed, and press **Send**.
+4. Without a key the page says the assistant is unavailable and no model is called.
+
+Everything the assistant can read or do is listed in [docs/assistant-tools.md](docs/assistant-tools.md). Any change it
+proposes (including permanent deletes) is shown in plain words and waits for your **Yes**, **No** or **Cancel**; your
+role and pandal scope are checked again when you say Yes. It cannot manage users or roles. Voice audio is sent to Meta
+only when you use the microphone and is not stored.
 
 ## 11. Limits
 
@@ -205,16 +265,16 @@ npm test
 
 ## 12. Roadmap
 
-AI chat page (Muse Spark choosing backend tools to answer questions), usage and cost view for both models, server-side
-capture worker, cloud database, real authentication, notifications.
+Usage and cost view for SAM 3.1, Muse Spark and Voice Transcribe, server-side capture worker, cloud database, real
+authentication, notifications, streaming assistant replies.
 
 ## 13. Repository layout
 
 ```
-backend/        api, schemas, repositories, services, engine, simulator, workflows, vision, observability, integrations, security
+backend/        assistant (tools, orchestration, voice), api, schemas, repositories, services, engine, simulator, workflows, vision, observability, integrations, security
 frontend/       React app (src/api, components, pages, hooks, types, styles)
 tests/backend/  pytest suites          frontend/src/__tests__/  Vitest suites
-docs/           architecture, camera wall, Meta integration, AWS plan
+docs/           architecture, camera wall, Meta integration, AI assistant tools, AWS plan
 scripts/        helper scripts (PowerShell runners, clip generator, data reset)
 gallery/        your .mp4 files (not committed)
 data/           local SQLite database (not committed)

@@ -19,7 +19,7 @@ Both conditions are required, so a key sitting in the environment alone never ca
 1. `CROWDGUARD_PROVIDER=meta`
 2. `META_MODEL_API_KEY=<key>` (or Meta's documented name `MODEL_API_KEY`)
 
-Put them in `.env` (git-ignored) or in real environment variables, then restart the backend.
+Put them in `E:\dev\crowdguard-ai\.env` (git-ignored) or in real environment variables, then restart the backend.
 If the flag is set but the key is missing or the model name is invalid, the app falls back to the local template
 provider and says why under Settings. The key is never logged, stored in the database, or returned by any API.
 Optional: `META_MODEL` = `muse-spark-1.3` (default), `muse-spark-1.2` or `muse-spark-1.1`.
@@ -64,3 +64,16 @@ Sources: https://dev.meta.ai/docs/overview, /docs/models, /docs/protocols/respon
   ground truth.
 - Streaming, tool calling, image or video input, and prompt caching are not used.
 - A live test: the adapter has only been tested against a mocked HTTP transport.
+
+## AI Assistant (Muse Spark tool calling) and Muse Voice Transcribe
+
+Added on 2026-10-26. Details, the full tool list and limits are in [assistant-tools.md](assistant-tools.md).
+
+* `MetaModelProvider.respond_with_tools` extends the existing adapter (same credential, model whitelist, error
+  categories and `store:false` stance). It sends flat function tools with `tool_choice:"auto"` and
+  `include:["reasoning.encrypted_content"]` so reasoning items can be replayed statelessly.
+* `backend/assistant/transcribe.py` calls `POST https://api.meta.ai/v1/asr/transcribe` (multipart `request` + WAV `audio`,
+  mode `ENDPOINTING` by default so long questions with pauses are joined; `PUSH_TO_TALK` via `META_VOICE_MODE`). The realtime WebSocket API is documented by Meta but not used.
+* Every assistant model step is logged in the model-call table (`operation = assistant_chat`) with latency, tokens
+  and estimated cost; tokens/cost stay `null` when Meta does not report them. Prompts and audio are not stored.
+* Verified against mocked Meta responses only. It has not been exercised against the live Meta API in this build.
