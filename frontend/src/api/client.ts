@@ -1,4 +1,5 @@
 import type {
+  AssistantCaps, AssistantReply, TranscribeReply,
   AuditRow, Camera, Dashboard, Explanation, Incident, IncidentEvent, LlmCall, LlmSummary, Pandal,
   PandalState, Run, Series, Settings, Simulation, Stage, User, VisionResult, VisionStatus, WallView, Zone, Location,
 } from '../types';
@@ -183,5 +184,37 @@ export const api = {
       throw new ApiError(res.status, msg);
     }
     return (await res.json()) as VisionResult;
+  },
+
+  assistantCaps: () => request<AssistantCaps>('GET', '/assistant/capabilities'),
+  assistantChat: (message: string, conversationId: string | null, inputMode: 'text' | 'voice') =>
+    request<AssistantReply>('POST', '/assistant/chat', {
+      message,
+      conversation_id: conversationId,
+      input_mode: inputMode,
+    }),
+  assistantConfirm: (id: string) => request<{ ok: boolean; summary: string }>('POST', `/assistant/actions/${id}/confirm`),
+  assistantCancelAll: () => request<{ ok: boolean; cancelled: number }>('POST', '/assistant/actions/cancel-all'),
+  assistantCancel: (id: string) => request<{ ok: boolean }>('POST', `/assistant/actions/${id}/cancel`),
+  /** Sends one WAV clip (mono, 16-bit, 16 kHz). The transcript comes back for the user to review and edit. */
+  assistantTranscribe: async (wav: Blob, language: string): Promise<TranscribeReply> => {
+    const tok = tokenStore.get();
+    const res = await fetch('/api/assistant/transcribe' + qs({ language }), {
+      method: 'POST',
+      headers: { 'Content-Type': 'audio/wav', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+      body: wav,
+    });
+    if (!res.ok) {
+      let msg = res.statusText || `HTTP ${res.status}`;
+      try {
+        const j = await res.json();
+        if (typeof j.detail === 'string') msg = j.detail;
+      } catch {
+        /* keep status text */
+      }
+      if (res.status === 401) window.dispatchEvent(new Event('cg-unauthorized'));
+      throw new ApiError(res.status, msg);
+    }
+    return (await res.json()) as TranscribeReply;
   },
 };
