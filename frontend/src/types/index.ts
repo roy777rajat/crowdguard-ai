@@ -332,3 +332,36 @@ export interface Explanation {
   call: LlmCall;
   disclaimer: string;
 }
+
+export interface AssistantTool { name: string; description: string; permission: string; source: string }
+export interface AssistantCaps {
+  chat: { available: boolean; provider: string | null; model: string | null; reason: string | null };
+  voice: { available: boolean; model: string | null; languages: string[]; max_seconds: number; reason: string | null };
+  tools: AssistantTool[];
+  actions: Array<{ name: string; permission: string; requires_confirmation: boolean }>;
+  suggestions: string[];
+}
+export interface AssistantReply {
+  status: 'ok' | 'unavailable' | 'error' | 'limit_reached';
+  answer: string | null;
+  message: string | null;
+  conversation_id: string | null;
+  correlation_id: string;
+  provider: string | null;
+  model: string | null;
+  turns: number;
+  tools: Array<{ name: string; ok: boolean; duration_ms: number | null; error_code: string | null }>;
+  sources: Array<{ tool: string; source: string; as_of: number | null }>;
+  pending_actions: Array<{ action_id: string; summary: string; destructive?: boolean }>;
+  duration_ms: number | null;
+  usage: { input_tokens: number | null; output_tokens: number | null };
+  disclaimer: string;
+}
+export interface TranscribeReply {
+  transcript: string;
+  model: string;
+  correlation_id: string;
+  language: string;
+  audio_seconds: number;
+  est_cost_usd: number;
+}
