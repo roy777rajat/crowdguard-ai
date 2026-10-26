@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import { Loading } from './components/States';
 import { useAuth } from './hooks/auth';
+import Assistant from './pages/Assistant';
 import CameraWall from './pages/CameraWall';
 import Cameras from './pages/Cameras';
 import Dashboard from './pages/Dashboard';
@@ -39,6 +40,7 @@ export default function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/assistant" element={<Assistant />} />
         <Route path="/live" element={<Live />} />
         <Route path="/pandals" element={<Pandals />} />
         <Route path="/camera-wall" element={<CameraWall />} />

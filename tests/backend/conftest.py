@@ -9,6 +9,7 @@ from backend.services.seed import DEMO_PASSWORDS
 # Tests must never reach a real model API, whatever the developer's .env says.
 os.environ["CROWDGUARD_PROVIDER"] = "local"
 os.environ["CROWDGUARD_DETECTOR"] = "simulated"
+os.environ["CROWDGUARD_VOICE"] = "off"
 
 
 @pytest.fixture()

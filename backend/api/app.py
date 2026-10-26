@@ -17,7 +17,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.admin_routes import router as admin_router
 from backend.api.routes import router
 from backend.api.vision_routes import router as vision_router
-from backend.config import build_provider, load_dotenv
+from backend.assistant.routes import AssistantState
+from backend.assistant.routes import router as assistant_router
+from backend.assistant.transcribe import MetaTranscriber
+from backend.config import build_provider, build_transcriber, load_dotenv
 from backend.db import Database
 from backend.observability.llm import LLMProvider
 from backend.observability.telemetry import NullExporter, RequestMetrics
@@ -35,7 +38,8 @@ log = logging.getLogger("crowdguard")
 
 def create_app(db_path: Optional[str] = None, run_loop: bool = True, seed: bool = True,
                provider: Optional[LLMProvider] = None,
-               detector: Optional[PersonDetector] = None) -> FastAPI:
+               detector: Optional[PersonDetector] = None,
+               transcriber: Optional[MetaTranscriber] = None) -> FastAPI:
     if provider is None:
         load_dotenv()  # reads E:\dev\crowdguard-ai\.env if present; real environment variables win
         provider, provider_info = build_provider()
@@ -46,6 +50,9 @@ def create_app(db_path: Optional[str] = None, run_loop: bool = True, seed: bool 
         detector, detector_info = build_detector()
     else:
         detector_info = {"requested": "injected", "credential_set": False, "note": ""}
+    if transcriber is None:
+        load_dotenv()
+        transcriber = build_transcriber()
     path = db_path or os.environ.get("CROWDGUARD_DB", "data/crowdguard.db")
     db = Database(path)
     repos = Repos(db)
@@ -80,6 +87,8 @@ def create_app(db_path: Optional[str] = None, run_loop: bool = True, seed: bool 
     app.state.ctx = ctx
     app.state.detector = detector
     app.state.detector_info = detector_info
+    app.state.transcriber = transcriber
+    app.state.assistant = AssistantState()
     origins = os.environ.get("CROWDGUARD_CORS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"])
 
@@ -97,4 +106,5 @@ def create_app(db_path: Optional[str] = None, run_loop: bool = True, seed: bool 
     app.include_router(router)
     app.include_router(vision_router)
     app.include_router(admin_router)
+    app.include_router(assistant_router)
     return app

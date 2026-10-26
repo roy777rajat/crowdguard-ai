@@ -6,6 +6,7 @@ import '../styles/theme-durga.css';
 
 const NAV: Array<{ to: string; text: string; perm: string }> = [
   { to: '/', text: 'Dashboard', perm: 'read' },
+  { to: '/assistant', text: 'AI Assistant', perm: 'read' },
   { to: '/live', text: 'Live monitoring', perm: 'read' },
   { to: '/camera-wall', text: 'Camera wall', perm: 'read' },
   { to: '/pandals', text: 'Pandals', perm: 'read' },

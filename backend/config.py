@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Tuple
 
+from backend.assistant.transcribe import MetaTranscriber
 from backend.integrations.meta_adapter import DEFAULT_MODEL, MetaModelProvider
 from backend.observability.llm import LLMProvider, LocalTemplateProvider
 
@@ -50,3 +51,18 @@ def build_provider(env: Optional[Mapping[str, str]] = None) -> Tuple[LLMProvider
     elif requested != "local":
         info["note"] = f"Unknown provider '{requested}'; using the local template provider."
     return LocalTemplateProvider(), info
+
+
+def build_transcriber(env: Optional[Mapping[str, str]] = None) -> Optional[MetaTranscriber]:
+    """Voice transcription is opt-in because audio leaves this computer: CROWDGUARD_VOICE=meta AND a key.
+
+    The key is META_VOICE_API_KEY if set, otherwise the same Meta key used for Muse Spark.
+    """
+    env = os.environ if env is None else env
+    if (env.get("CROWDGUARD_VOICE") or "off").strip().lower() != "meta":
+        return None
+    key = (env.get("META_VOICE_API_KEY") or env.get("META_MODEL_API_KEY") or env.get("MODEL_API_KEY") or "").strip()
+    mode = (env.get("META_VOICE_MODE") or "ENDPOINTING").strip().upper()
+    if mode not in ("ENDPOINTING", "PUSH_TO_TALK"):
+        mode = "ENDPOINTING"
+    return MetaTranscriber(key, mode=mode) if key else None
