@@ -16,7 +16,8 @@ Prompts are not stored either: observability keeps only a hash and a length.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -85,6 +86,56 @@ def _extract_text(data: Dict[str, Any]) -> str:
     raise ProviderError("refusal" if refused else "empty_response", "no usable text in response")
 
 
+@dataclass
+class ToolCall:
+    call_id: str
+    name: str
+    arguments: str  # raw JSON text exactly as the model produced it; the caller validates it
+
+
+@dataclass
+class ToolTurn:
+    """One model response in a tool-calling exchange."""
+    output_items: List[Dict[str, Any]]
+    text: Optional[str]
+    calls: List[ToolCall] = field(default_factory=list)
+    model: str = ""
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+
+
+def parse_tool_turn(data: Dict[str, Any], fallback_model: str) -> ToolTurn:
+    """Read a Responses API reply that may contain `function_call` items. Raises ProviderError if malformed."""
+    raw_usage = data.get("usage")
+    usage: Dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
+    in_tok, out_tok = _as_int(usage.get("input_tokens")), _as_int(usage.get("output_tokens"))
+    status = data.get("status")
+    if status not in (None, "completed"):
+        raise ProviderError("incomplete" if status == "incomplete" else "failed", f"status {status}",
+                            input_tokens=in_tok, output_tokens=out_tok)
+    items = data.get("output")
+    if not isinstance(items, list):
+        raise ProviderError("bad_response", "response has no output list", input_tokens=in_tok, output_tokens=out_tok)
+    clean = [i for i in items if isinstance(i, dict)]
+    calls: List[ToolCall] = []
+    for item in clean:
+        if item.get("type") == "function_call":
+            cid, name, args = item.get("call_id"), item.get("name"), item.get("arguments")
+            if not isinstance(cid, str) or not isinstance(name, str) or not isinstance(args, str):
+                raise ProviderError("bad_response", "malformed function_call item",
+                                    input_tokens=in_tok, output_tokens=out_tok)
+            calls.append(ToolCall(cid, name, args))
+    text: Optional[str] = None
+    if not calls:
+        try:
+            text = _extract_text(data)
+        except ProviderError as exc:
+            exc.input_tokens, exc.output_tokens = in_tok, out_tok
+            raise
+    return ToolTurn(output_items=clean, text=text, calls=calls, model=str(data.get("model") or fallback_model),
+                    input_tokens=in_tok, output_tokens=out_tok)
+
+
 class MetaModelProvider:
     name = "meta"
 
@@ -107,6 +158,45 @@ class MetaModelProvider:
 
     def __repr__(self) -> str:  # never include the credential
         return f"MetaModelProvider(model={self.model!r})"
+
+    def respond_with_tools(self, instructions: str, input_items: List[Dict[str, Any]],
+                           tools: List[Dict[str, Any]]) -> ToolTurn:
+        """One step of native function calling on the Responses API (flat function tools, tool_choice auto).
+
+        Stateless on purpose (store=false, same as `generate`): the caller replays the previous output items
+        and `function_call_output` items. Replaying reasoning items needs reasoning.encrypted_content.
+        """
+        body: Dict[str, Any] = {
+            "model": self.model, "instructions": instructions, "input": input_items,
+            "max_output_tokens": self._max_output_tokens, "store": False,
+            "reasoning": {"effort": self._effort}, "include": ["reasoning.encrypted_content"],
+        }
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = "auto"
+        data = self._post(body)
+        return parse_tool_turn(data, self.model)
+
+    def _post(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
+        try:
+            resp = self._client.post(f"{DEFAULT_BASE_URL}/responses", headers=headers, json=body)
+        except httpx.TimeoutException:
+            raise ProviderError("timeout", "request timed out") from None
+        except httpx.HTTPError:
+            raise ProviderError("network", "could not reach the Meta Model API") from None
+        if resp.status_code != 200:
+            category = _STATUS_CATEGORY.get(resp.status_code, "server_error" if resp.status_code >= 500
+                                            else "http_error")
+            raise ProviderError(category, f"HTTP {resp.status_code} {_error_detail(resp)}".strip(),
+                                retry_after=_retry_after(resp))
+        try:
+            data = resp.json()
+        except ValueError:
+            raise ProviderError("bad_response", "response was not JSON") from None
+        if not isinstance(data, dict):
+            raise ProviderError("bad_response", "unexpected response shape")
+        return data
 
     def generate(self, prompt: str, facts: Dict[str, Any]) -> ProviderResult:
         body = {
