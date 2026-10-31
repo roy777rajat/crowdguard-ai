@@ -183,6 +183,7 @@ class AIHelper:
     def __init__(self) -> None:
         self.key = ""
         self.provider = "none"
+        self.note = ""  # why the last suggest() gave nothing (shown to the user)
 
     @property
     def enabled(self) -> bool:
@@ -235,15 +236,25 @@ class AIHelper:
                 f"Error (redacted, last lines):\n{self.redact(error)[-1800:]}\n\nMenu:\n{menu}")
         try:
             text = self._call(instr, user, 1500)
+            log(f"AI raw reply: {text[:500]}")
             m = re.search(r"\{.*\}", text, re.S)
             if not m:
+                self.note = "the AI reply was not in the expected format"
                 return None
             obj = json.loads(m.group(0))
             act = str(obj.get("action", "none"))
-            return (act, str(obj.get("reason", ""))) if act in actions else None
-        except Exception as e:
+            if act not in actions:
+                self.note = (f"the AI found no matching fix on the menu: {obj.get('reason', '')}"
+                             if act == "none" else f"the AI chose '{act}', which is not on the menu")
+                return None
+            return act, str(obj.get("reason", ""))
+        except urllib.error.HTTPError as e:
+            self.note = f"Meta API returned HTTP {e.code}"
             log(f"AI helper unavailable: {e}")
-            return None
+        except Exception as e:
+            self.note = f"could not get an answer from Meta ({type(e).__name__})"
+            log(f"AI helper unavailable: {e}")
+        return None
 
 
 AI = AIHelper()
@@ -431,6 +442,31 @@ def step_prereq(ctx: Ctx) -> None:
     ctx.summary["Node.js"] = nv.strip()
 
 
+def move_aside_untracked(root: Path, git_output: str) -> List[str]:
+    """Rename untracked files that git says a pull would overwrite (never deletes anything)."""
+    moved: List[str] = []
+    grab = False
+    for line in git_output.splitlines():
+        if "untracked working tree files would be overwritten" in line:
+            grab = True
+            continue
+        if grab:
+            if line.startswith("Please move") or not line.strip():
+                break
+            rel = line.strip()
+            src = root / rel
+            if src.is_file():
+                dst = src.with_name(src.name + ".old")
+                try:
+                    if dst.exists():
+                        dst.unlink()
+                    src.rename(dst)
+                    moved.append(rel)
+                except OSError as e:
+                    log(f"could not move {rel}: {e}")
+    return moved
+
+
 def step_code(ctx: Ctx) -> None:
     repo = ctx.args.repo or REPO_URL
     root = ctx.root
@@ -438,6 +474,12 @@ def step_code(ctx: Ctx) -> None:
     if (root / ".git").exists() and git:
         info("Existing install found - fetching updates (your data and settings are kept)")
         code, txt = run([git, "pull", "--ff-only"], cwd=root, label="git pull")
+        if code != 0 and "untracked working tree files would be overwritten" in txt:
+            # Typical after an older install: the launcher copy of the installer is now a tracked file.
+            moved = move_aside_untracked(root, txt)
+            if moved:
+                info("Moved aside files that were in the way (kept as *.old): " + ", ".join(moved))
+                code, txt = run([git, "pull", "--ff-only"], cwd=root, label="git pull")
         if code != 0:
             raise StepError("git pull failed (you may have local edits).", txt)
     elif git and not (root / "backend").exists():
@@ -864,7 +906,7 @@ def run_step(ctx: Ctx, step: Step, i: int, n: int) -> bool:
                     if choice.startswith("s"):
                         return _skip_or_stop(step)
                 else:
-                    warn("The AI helper had no further suggestion.")
+                    warn(f"The AI helper had no suggestion: {AI.note or 'no reason given'}.")
             elif not AI.enabled and ai_attempts == 0 and step.actions:
                 sub("(No AI helper configured - restart the installer with a Meta key to get fix suggestions.)")
             # 3) last resort: human choice
