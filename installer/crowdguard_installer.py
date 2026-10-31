@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """CrowdGuard AI - guided installer / launcher (Windows, macOS, Linux). Standard library only.
 
-    python crowdguard_installer.py            # guided install (default)
+    python crowdguard_installer.py            # installs, or opens the Control Room if already installed
+    python crowdguard_installer.py install    # force the guided install
     python crowdguard_installer.py menu|start|stop|status|stop-backend|stop-frontend|chat|uninstall
 
 How it works: steps run one by one with plain, deterministic checks. Nothing in the happy path uses AI.
@@ -27,6 +28,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -434,6 +436,7 @@ def step_prereq(ctx: Ctx) -> None:
                 raise StepError("Node.js was installed but is not visible yet. Close this window, open a new "
                                 "one and run the installer again.", txt)
             ok("Node.js installed")
+            record_system_install(ctx.root, "node")
         else:
             raise StepError("Node.js is required. Install it from https://nodejs.org (LTS) and run again.")
     ctx.node_ok = True
@@ -1032,6 +1035,131 @@ def open_browser(args: argparse.Namespace) -> None:
 
 
 # ------------------------------------------------------------------ control menu: single services, AI chat, uninstall
+def pointer_file() -> Path:
+    return Path.home() / ".crowdguard" / "install_path.txt"
+
+
+def remember_install(root: Path) -> None:
+    try:
+        pointer_file().parent.mkdir(parents=True, exist_ok=True)
+        pointer_file().write_text(str(root), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def is_install(p: Path) -> bool:
+    return (p / "backend" / "api" / "app.py").exists()
+
+
+def known_install(dir_arg: Optional[str] = None) -> Optional[Path]:
+    cands: List[Path] = []
+    if dir_arg:
+        cands.append(Path(dir_arg).expanduser())
+    try:
+        cands.append(Path(pointer_file().read_text(encoding="utf-8").strip()))
+    except OSError:
+        pass
+    cands += [Path("C:/CrowdGuard") if IS_WIN else Path.home() / "CrowdGuard", Path.cwd(),
+              Path(__file__).resolve().parent.parent]
+    for c in cands:
+        try:
+            if c and is_install(c):
+                return c.resolve()
+        except OSError:
+            continue
+    return None
+
+
+def pkg_manager_name() -> Tuple[str, str]:
+    """(manager, how to remove Node) for the package manager pkg_install() would use."""
+    if IS_WIN and which("winget"):
+        return "winget", "winget uninstall OpenJS.NodeJS.LTS"
+    if platform.system() == "Darwin" and which("brew"):
+        return "brew", "brew uninstall node"
+    if which("apt-get"):
+        return "apt", "sudo apt-get remove nodejs npm"
+    if which("dnf"):
+        return "dnf", "sudo dnf remove nodejs npm"
+    return "unknown", ""
+
+
+def record_system_install(root: Path, tool: str) -> None:
+    """Remember what this installer put on the SYSTEM (outside the folder) so uninstall can tell you."""
+    try:
+        f = root / ".crowdguard" / "system_installs.json"
+        data = json.loads(f.read_text()) if f.exists() else {}
+        mgr, hint = pkg_manager_name()
+        data[tool] = {"package_manager": mgr, "remove_with": hint, "when": time.strftime("%Y-%m-%d %H:%M")}
+        f.parent.mkdir(exist_ok=True)
+        f.write_text(json.dumps(data, indent=1))
+    except (OSError, ValueError):
+        pass
+
+
+def health_problems(root: Path) -> Tuple[List[str], List[str]]:
+    """(needs_install, needs_start): plain-language problems found right now."""
+    fix_install: List[str] = []
+    fix_start: List[str] = []
+    if not venv_python(root).exists():
+        fix_install.append("The private Python environment (.venv) is missing")
+    if not (root / "frontend" / "node_modules").exists():
+        fix_install.append("The web packages (frontend/node_modules) are missing")
+    if not port_busy(BACKEND_PORT):
+        fix_start.append(f"The backend is not running (port {BACKEND_PORT})")
+    else:
+        code, body = http_get(f"http://127.0.0.1:{BACKEND_PORT}/api/health", 4)
+        if code != 200 or '"database":"ok"' not in body.replace(" ", ""):
+            fix_start.append("The backend is running but its health check FAILED")
+    if not port_busy(FRONTEND_PORT):
+        fix_start.append(f"The web screens are not running (port {FRONTEND_PORT})")
+    return fix_install, fix_start
+
+
+def show_health(root: Path) -> None:
+    need_install, need_start = health_problems(root)
+    if not need_install and not need_start:
+        out("  " + col("ALL SYSTEMS UP", "g", True) + col("  backend, database and web screens are healthy", "d"))
+        return
+    out("  " + col("FAILED - the system is not fully up:", "r", True))
+    for pr in need_install + need_start:
+        out("    " + col("x", "r", True) + " " + pr)
+    out("  What to do:")
+    if need_install:
+        out("    - Choose " + col("13", "y", True) + " (install / repair) - something the app needs is missing")
+    if need_start:
+        out("    - Choose " + col("2", "y", True) + " (start everything), or 4 / 6 to start one part")
+    out(f"    - Still failing? Contact your system administrator and share the logs in {root / 'logs'}")
+
+
+def gateway(args: argparse.Namespace) -> int:
+    """One command for everyone: installs if nothing is installed yet, otherwise offers the Control Room."""
+    root = known_install(args.dir)
+    if root is None or not INTERACTIVE:
+        return cmd_install(args)
+    global LOG
+    LOG = root / "logs" / "installer.log"
+    out()
+    out(col("  CrowdGuard AI", "c", True))
+    out(f"  An install was found: {root}")
+    out("  " + service_line(root))
+    show_health(root)
+    out()
+    out(f"   {col(' 1', 'y', True)}  Open the Control Room (start/stop, AI chat, uninstall ...)")
+    out(f"   {col(' 2', 'y', True)}  Install again / repair / update this install")
+    out(f"   {col(' 3', 'y', True)}  Install a new copy in a different folder")
+    out(f"   {col(' 0', 'y', True)}  Exit")
+    ch = ask("What would you like to do? (enter a number)", "1")
+    if ch == "1":
+        return menu(root)
+    if ch == "2":
+        args.dir = str(root)
+        return cmd_install(args)
+    if ch == "3":
+        args.dir = None
+        return cmd_install(args)
+    return 0
+
+
 def read_pids(root: Path) -> Dict[str, int]:
     pf = pids_file(root)
     try:
@@ -1169,26 +1297,81 @@ def read_wav_for_upload(path: Path) -> bytes:
     return data
 
 
+MIC_SILENCE_SECS, MIC_WAIT_SECS = 4.0, 20.0
+
+
 MIC_SCRIPT = r'''
-import sys, wave, threading, time
+import array, sys, time, wave
 import sounddevice as sd
-rate, path, limit = 16000, sys.argv[1], 60
+rate, path = 16000, sys.argv[1]
+silence_stop = float(sys.argv[2])
+wait_max = float(sys.argv[3]) if len(sys.argv) > 3 else 20.0
+limit = 60.0
+st = {"noise": [], "thr": None, "spoke": False, "quiet": 0.0, "level": 0.0}
 frames = []
+def rms(b):
+    a = array.array("h")
+    a.frombytes(b)
+    return (sum(x * x for x in a) / max(1, len(a))) ** 0.5
 def cb(indata, n, t, s):
-    frames.append(bytes(indata))
-stop = threading.Event()
-threading.Thread(target=lambda: (input(), stop.set()), daemon=True).start()
-with sd.RawInputStream(samplerate=rate, channels=1, dtype="int16", callback=cb):
-    t0 = time.time()
-    while not stop.is_set() and time.time() - t0 < limit:
-        time.sleep(0.1)
+    b = bytes(indata)
+    frames.append(b)
+    r = rms(b)
+    st["level"] = r
+    dt = len(b) / 2.0 / rate
+    if st["thr"] is None:
+        st["noise"].append(r)
+        if len(st["noise"]) >= 5:
+            base = sorted(st["noise"])[len(st["noise"]) // 2]
+            st["thr"] = min(1500.0, max(250.0, base * 3.0))
+        return
+    if r > st["thr"]:
+        st["spoke"], st["quiet"] = True, 0.0
+    else:
+        st["quiet"] += dt
+tty = sys.stdout.isatty()
+def say(msg):
+    if tty:
+        sys.stdout.write("\r\033[90m" + msg.ljust(78) + "\033[0m")
+        sys.stdout.flush()
+t0 = time.time()
+reason = "limit"
+try:
+    with sd.RawInputStream(samplerate=rate, channels=1, dtype="int16", blocksize=1600, callback=cb):
+        while True:
+            time.sleep(0.1)
+            el = time.time() - t0
+            thr = st["thr"] or 1.0
+            bar = "#" * min(20, int(st["level"] / thr * 5))
+            if st["spoke"]:
+                say("  listening... [%-20s] pause %.1fs of %.0fs" % (bar, st["quiet"], silence_stop))
+                if st["quiet"] >= silence_stop:
+                    reason = "silence"
+                    break
+            else:
+                say("  waiting for you to speak... [%-20s] %.0fs" % (bar, el))
+                if el >= wait_max:
+                    reason = "nospeech"
+                    break
+            if el >= limit:
+                break
+except KeyboardInterrupt:
+    reason = "interrupted"
+if tty:
+    sys.stdout.write("\r" + " " * 80 + "\r")
+if not st["spoke"]:
+    sys.exit(3)
 with wave.open(path, "wb") as w:
-    w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(b"".join(frames))
+    w.setnchannels(1)
+    w.setsampwidth(2)
+    w.setframerate(rate)
+    w.writeframes(b"".join(frames))
 '''
 
 
 def record_mic(py: str) -> Optional[Path]:
-    """Record from the default microphone with the optional 'sounddevice' package (installed only if you agree)."""
+    """Record from the default microphone (optional 'sounddevice' package, installed only if you agree).
+    Stops by itself after 4 seconds of silence once you have spoken; waits up to 20 s for you to start."""
     code, _ = run([py, "-c", "import sounddevice"])
     if code != 0:
         warn("Microphone recording needs the small 'sounddevice' package (installed inside this app's .venv only).")
@@ -1201,13 +1384,70 @@ def record_mic(py: str) -> Optional[Path]:
             sub(txt.strip().splitlines()[-1][:110] if txt.strip() else "")
             return None
     path = Path(tempfile.mkdtemp(prefix="cg-mic-")) / "clip.wav"
-    out("  " + col("Recording... speak now, press Enter to stop (max 60 s).", "m", True))
-    code, txt = run([py, "-c", MIC_SCRIPT, str(path)], timeout=90)
-    if code != 0 or not path.exists():
-        bad("Recording failed (no microphone or no permission?).")
-        sub(txt.strip().splitlines()[-1][:110] if txt.strip() else "")
+    out("  " + col("Speak now. It sends by itself after 4 seconds of silence (max 60 s).", "m", True))
+    try:
+        r = subprocess.run([py, "-c", MIC_SCRIPT, str(path), str(MIC_SILENCE_SECS), str(MIC_WAIT_SECS)], timeout=100)
+    except subprocess.TimeoutExpired:
+        bad("Recording took too long and was stopped.")
+        return None
+    if r.returncode == 3:
+        warn(f"No speech heard in {int(MIC_WAIT_SECS)} seconds. Check your microphone and try /mic again.")
+        return None
+    if r.returncode != 0 or not path.exists():
+        bad("Recording failed (no microphone, or the app has no permission to use it).")
         return None
     return path
+
+
+def stream_text(text: str, cps: float = 250, dim: bool = False) -> None:
+    """Print text gradually (typewriter). Plain instant print when not on a colour terminal."""
+    if not USE_COLOR:
+        out(text)
+        return
+    delay = 1.0 / cps
+    sys.stdout.write("\033[90m" if dim else "")
+    for ch in text:
+        sys.stdout.write(ch)
+        sys.stdout.flush()
+        time.sleep(delay)
+    sys.stdout.write("\033[0m\n")
+    sys.stdout.flush()
+
+
+def post_with_thinking(url: str, body: bytes, ctype: str, token: str, show: bool) -> Tuple[int, dict]:
+    """Run the request in a thread and show a live, dim 'thinking' line with elapsed time."""
+    box: Dict[str, Tuple[int, dict]] = {}
+    t = threading.Thread(target=lambda: box.update(r=_post(url, body, ctype, token)), daemon=True)
+    t.start()
+    t0, i = time.time(), 0
+    while t.is_alive():
+        t.join(0.2)
+        if show and USE_COLOR:
+            sys.stdout.write("\r" + col("  thinking %s %4.1fs" % ("|/-\\"[i % 4], time.time() - t0), "d"))
+            sys.stdout.flush()
+            i += 1
+    if show and USE_COLOR:
+        sys.stdout.write("\r" + " " * 40 + "\r")
+    return box.get("r", (0, {"detail": "no reply"}))
+
+
+def thinking_trace(res: dict) -> List[str]:
+    """What the assistant actually did, taken from the reply: tools, sources, turns, timing. Not invented."""
+    lines = ["agent steps:"]
+    for t in res.get("tools", []):
+        ms = f", {t['duration_ms']:.0f} ms" if t.get("duration_ms") is not None else ""
+        lines.append(f"  - checked {t.get('name')}: " + ("ok" if t.get("ok") else f"failed ({t.get('error_code')})") + ms)
+    for sref in res.get("sources", []):
+        lines.append(f"  - data source: {sref.get('source')} (via {sref.get('tool')})")
+    bits = [f"{res.get('turns', 0)} reasoning turn(s)"]
+    if res.get("model"):
+        bits.append(str(res["model"]))
+    if res.get("duration_ms") is not None:
+        bits.append(f"{res['duration_ms']:.0f} ms")
+    use = res.get("usage") or {}
+    toks = [f"{k.replace('_', ' ')} {use[k]}" for k in ("input_tokens", "output_tokens") if k in use]
+    lines.append("  - " + ", ".join(bits + toks))
+    return lines
 
 
 def chat_session(root: Path) -> None:
@@ -1238,16 +1478,21 @@ def chat_session(root: Path) -> None:
         sub("Use menu option 'Turn AI features on/off' to add your Meta key, then try again.")
         return
     voice_ok = bool(caps["voice"]["available"])
+    langs = [str(x) for x in caps["voice"].get("languages", ["auto"])] or ["auto"]
+    language, think = "auto", True
     out()
     out(col(f"  AI assistant ready ({caps['chat'].get('model')}), signed in as {user}.", "g", True))
     sub("Answers are decision support for people to review, not instructions. Data is simulated.")
-    sub("Type a question and press Enter. Commands: /voice file.wav  /mic  /new  /help  /quit")
-    if not voice_ok:
+    sub("Type a question and press Enter. Commands: /mic  /voice file.wav  /lang  /think  /new  /help  /quit")
+    sub("The thinking view shows the assistant's real steps (tools, sources, timing); the model's own")
+    sub("private reasoning text is not exposed by the app, so it is not shown.")
+    if voice_ok:
+        sub("Voice language: auto-detect. If a transcript is wrong, set it with /lang (e.g. /lang Bengali).")
+    else:
         sub("(Voice is OFF on the server: " + str(caps["voice"].get("reason") or "") + ")")
     for q in caps.get("suggestions", [])[:3]:
         sub(f"Try: {q}")
     conv: Optional[str] = None
-    mode = "text"
     while True:
         try:
             line = input("\n  " + col("You>", "m", True) + " ").strip()
@@ -1261,14 +1506,32 @@ def chat_session(root: Path) -> None:
         if low in ("/quit", "/exit", "/q"):
             return
         if low == "/help":
+            sub("/mic               speak; it sends by itself after 4 seconds of silence")
             sub("/voice <file.wav>  send a recording (mono 16-bit WAV, 16 or 24 kHz, under 1 minute)")
-            sub("/mic               record from your microphone")
+            sub("/lang [name]       voice language: auto, " + ", ".join(x for x in langs if x != "auto"))
+            sub("/think             turn the thinking view on or off")
             sub("/new               start a fresh conversation     /quit  leave the chat")
             sub("When the assistant proposes a change it waits for you: reply yes or no.")
             continue
         if low == "/new":
             conv = None
             ok("New conversation")
+            continue
+        if low == "/think":
+            think = not think
+            ok("Thinking view " + ("ON" if think else "OFF"))
+            continue
+        if low.startswith("/lang"):
+            arg = line[5:].strip()
+            if not arg:
+                sub(f"Voice language now: {language}. Choices: " + ", ".join(langs))
+                continue
+            match = next((x for x in langs if x.lower() == arg.lower()), None)
+            if match is None:
+                warn("Unknown language. Choices: " + ", ".join(langs))
+            else:
+                language = match
+                ok(f"Voice language: {language}" + ("  (the model detects it, including mixed speech)" if language == "auto" else ""))
             continue
         if low.startswith("/voice") or low == "/mic":
             if not voice_ok:
@@ -1289,24 +1552,19 @@ def chat_session(root: Path) -> None:
             except StepError as e:
                 bad(str(e))
                 continue
-            info("Transcribing (the audio is sent to Meta and is not stored)...")
-            c, res = _post(b + "/api/assistant/transcribe?language=auto", data, "audio/wav", tok)
+            info(f"Transcribing, language {language} (the audio is sent to Meta and is not stored)...")
+            c, res = _post(b + "/api/assistant/transcribe?language=" + urllib.parse.quote(language), data,
+                           "audio/wav", tok)
             if c != 200:
                 bad(f"Transcription failed: {res.get('detail') or 'HTTP ' + str(c)}")
                 continue
             line = str(res["transcript"])
-            out("  " + col("Heard:", "c", True) + f" {line}")
-            ans = ask("Send this? [Y]es / [N]o / [E]dit", "y").lower()
-            if ans.startswith("n"):
-                continue
-            if ans.startswith("e"):
-                line = ask("Your text", line)
-            mode = "voice"
+            out("  " + col("You said:", "c", True) + f" {line}")
+            mode = "voice"  # sent straight away - no extra confirmation
         body = {"message": line[:1500], "input_mode": mode}
         if conv:
             body["conversation_id"] = conv
-        info("Thinking...")
-        c, res = _post(b + "/api/assistant/chat", json.dumps(body).encode(), "application/json", tok)
+        c, res = post_with_thinking(b + "/api/assistant/chat", json.dumps(body).encode(), "application/json", tok, think)
         if c != 200:
             bad(f"The assistant could not answer: {res.get('detail') or 'HTTP ' + str(c)}")
             continue
@@ -1314,11 +1572,11 @@ def chat_session(root: Path) -> None:
         if res.get("status") != "ok":
             warn(str(res.get("message") or f"Assistant status: {res.get('status')}"))
             continue
+        if think:
+            for ln in thinking_trace(res):
+                stream_text("    " + ln, 400, dim=True)
         out(col("  Assistant>", "c", True))
-        out(_wrap(str(res.get("answer") or "")))
-        used = [t["name"] for t in res.get("tools", []) if t.get("ok")]
-        if used:
-            sub("Looked at: " + ", ".join(dict.fromkeys(used)))
+        stream_text(_wrap(str(res.get("answer") or "")), 220)
         for p in res.get("pending_actions", []):
             warn(f"Waiting for your decision: {p.get('summary')}  -> reply 'yes' to confirm or 'no' to decline")
 
@@ -1447,21 +1705,138 @@ def delete_tree(root: Path) -> bool:
     return not root.exists()
 
 
+def human(n: float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024.0
+    return f"{n:.1f} GB"
+
+
+ITEM_NOTES = {
+    ".venv": "private Python environment - every Python package the app uses",
+    "frontend": "web app source code + its node_modules packages",
+    "backend": "application code (API, forecasting engine, assistant)",
+    "data": "the SQLite database with all stored data",
+    ".env": "your settings, including any Meta API key",
+    "logs": "installer, backend and web logs",
+    "gallery": "your video clips",
+    ".crowdguard": "process ids and the record of system installs",
+    ".git": "git history of the code",
+    "crowdguard": "launcher (Linux/macOS)",
+    "crowdguard.cmd": "launcher (Windows)",
+    "installer": "this installer",
+    "docs": "documentation", "tests": "automated tests", "scripts": "helper scripts",
+}
+
+
+def cmd_out(cmd: List[str], timeout: int = 20) -> str:
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return (r.stdout or "").strip().splitlines()[-1] if r.stdout.strip() else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def uninstall_details(root: Path) -> None:
+    """Point-by-point list of everything the uninstall will and will not touch."""
+    out()
+    out(col("  A. INSIDE THE INSTALL FOLDER - all of this will be permanently DELETED", "r", True))
+    out(f"     Folder: {root}   (total {human(folder_size(root))})")
+    entries = []
+    for p in sorted(root.iterdir()):
+        size = folder_size(p) if p.is_dir() else (p.stat().st_size if p.exists() else 0)
+        entries.append((size, p))
+    for size, p in sorted(entries, key=lambda e: -e[0]):
+        note = ITEM_NOTES.get(p.name, "other file/folder in the install")
+        if p.name == "gallery":
+            note = f"{len([x for x in p.rglob('*') if x.is_file()])} file(s) - your video clips"
+        out(f"     {human(size):>9}  {p}{os.sep if p.is_dir() else ''}  - {note}")
+    nm = root / "frontend" / "node_modules"
+    if nm.exists():
+        out(f"     {human(folder_size(nm)):>9}  {nm}{os.sep}  - of the 'frontend' size above: web packages installed by npm")
+    out()
+    out(col("     Python packages in the private environment (.venv) - deleted with it:", "w", True))
+    req = root / "requirements.txt"
+    wanted = [ln.strip() for ln in req.read_text(errors="replace").splitlines()
+              if ln.strip() and not ln.strip().startswith("#")] if req.exists() else []
+    for w in wanted:
+        out(f"       - {w}")
+    vpy = venv_python(root)
+    if vpy.exists():
+        try:
+            lst = subprocess.run([str(vpy), "-m", "pip", "list", "--format=freeze"], capture_output=True,
+                                 text=True, timeout=60).stdout
+        except (OSError, subprocess.SubprocessError):
+            lst = ""
+        n = len([x for x in lst.splitlines() if "==" in x])
+        out(f"       (about {n} packages in total, including their dependencies)")
+    dbp = root / "data" / "crowdguard.db"
+    if dbp.exists():
+        try:
+            counts, _ = inspect_database(root)
+            out()
+            out(col(f"     Database {dbp} ({human(dbp.stat().st_size)}): {len(counts)} tables, "
+                    f"{sum(counts.values())} rows - all of it is deleted.", "w", True))
+        except Exception:
+            pass
+    pids = read_pids(root)
+    out()
+    out(col("     Running processes that will be stopped first:", "w", True))
+    for name, (label, port) in SERVICES.items():
+        out(f"       - {label}: " + (f"pid {pids[name]}, port {port}" if name in pids else f"port {port}") +
+            (" (running)" if port_busy(port) else " (not running)"))
+    out()
+    out(col("  B. OUTSIDE THE FOLDER (your laptop / SYSTEM)", "y", True))
+    ptr = pointer_file()
+    try:
+        if ptr.exists() and Path(ptr.read_text(encoding="utf-8").strip()).resolve() == root:
+            out(f"     Will be DELETED: {ptr}  (the small note that remembers where CrowdGuard is installed)")
+    except OSError:
+        pass
+    out("     Will NOT be touched (the installer never removes these):")
+    out(f"       - Python itself: {getattr(sys, '_base_executable', sys.executable)}")
+    out(f"       - Node.js: {which('node') or 'not found'}")
+    out(f"       - Git: {which('git') or 'not found'}")
+    pipc = cmd_out([str(vpy) if vpy.exists() else sys.executable, "-m", "pip", "cache", "dir"])
+    npmc = cmd_out([which("npm") or "npm", "config", "get", "cache"])
+    out(f"       - pip download cache: {pipc or 'unknown'}")
+    out(f"       - npm download cache: {npmc or 'unknown'}")
+    out("       - your GitHub repository and any other project")
+    led = root / ".crowdguard" / "system_installs.json"
+    try:
+        sysinst = json.loads(led.read_text()) if led.exists() else {}
+    except (OSError, ValueError):
+        sysinst = {}
+    if sysinst:
+        out("     Installed on your SYSTEM by this installer (NOT removed automatically):")
+        for tool, d in sysinst.items():
+            out(f"       - {tool} via {d.get('package_manager')} on {d.get('when')}. To remove it yourself: "
+                f"{d.get('remove_with') or 'use your package manager'}")
+    else:
+        out("     This installer did not record installing anything system-wide (Node.js, Git).")
+    out("     If the one-line install command installed Python for you, remove it yourself from")
+    out("     'Apps & features' (Windows) or your package manager. It is a normal program you may want to keep.")
+    out()
+    out("     There is no undo and nothing goes to the Recycle Bin / Trash.")
+
+
 def uninstall(root: Path, assume_yes: bool = False) -> bool:
     why = unsafe_to_delete(root)
     if why:
         bad(f"Refusing to delete {root}: {why}.")
         return False
-    size = folder_size(root) / 1e6
     out()
-    out(col("  UNINSTALL CROWDGUARD AI", "r", True))
-    out("  This will stop the app and permanently delete this whole folder:")
-    out(f"    {root}   ({size:.0f} MB)")
-    out("  including: the code, the private Python environment (.venv), web packages, the database and its")
-    out("  data, your settings file (.env, which holds any Meta key), logs and any videos in gallery/.")
-    out("  It does NOT remove Python, Node.js or Git from your computer, or caches kept outside this folder")
-    out("  (pip/npm caches), and it does not touch your GitHub repository. There is no undo.")
+    out(col("  UNINSTALL CROWDGUARD AI - please read carefully", "r", True))
+    uninstall_details(root)
     if not assume_yes:
+        out()
+        first = ask("Do you want to continue and delete everything listed in section A? Type yes or no", "no")
+        if first.lower() != "yes":
+            info("Cancelled - nothing was deleted.")
+            return False
+        out()
+        out(col(f"  FINAL CONFIRMATION: this permanently deletes {root} and everything in it.", "r", True))
         typed = ask("Type DELETE (capital letters) to confirm, or press Enter to cancel", "")
         if typed != "DELETE":
             info("Cancelled - nothing was deleted.")
@@ -1471,6 +1846,12 @@ def uninstall(root: Path, assume_yes: bool = False) -> bool:
         if port_busy(port):
             warn(f"Port {port} is still in use by something that is not tracked by this install; it is left alone.")
     ok("Services stopped")
+    try:
+        if pointer_file().exists() and Path(pointer_file().read_text(encoding="utf-8").strip()).resolve() == root:
+            pointer_file().unlink()
+            ok(f"Removed {pointer_file()}")
+    except OSError:
+        pass
     done = delete_tree(root)
     if IS_WIN:
         ok(f"Deleting {root} - this finishes a few seconds after this window closes.")
@@ -1480,6 +1861,11 @@ def uninstall(root: Path, assume_yes: bool = False) -> bool:
         warn(f"Some files could not be deleted. Remove {root} manually.")
     out("  Uninstalled. To install again, run the one-line install command from the README.")
     return done
+
+
+def reinstall(root: Path) -> None:
+    a = argparse.Namespace(dir=str(root), repo=None, provider=None, tests="ask", yes=False, no_browser=True)
+    cmd_install(a, offer_menu=False)
 
 
 def menu(root: Path) -> int:
@@ -1495,13 +1881,15 @@ def menu(root: Path) -> int:
         ("6", "Start web screens only"), ("7", "Stop web screens only"),
         ("8", "Restart everything"), ("9", "Open the app in your browser"), ("10", "Show recent log lines"),
         ("11", "Chat with the AI assistant (text or voice)"), ("12", "Turn AI features on/off (Meta key)"),
-        ("13", "Uninstall and delete everything"), ("0", "Exit")]
+        ("13", "Install / repair / update (re-run the installer)"), ("14", "Uninstall and delete everything"),
+        ("0", "Exit")]
     while True:
         out()
         out(col("=" * 72, "c"))
         out(col("  CrowdGuard AI - control menu", "c", True))
         out("  " + service_line(root))
         out(col(f"  Install folder: {root}", "d"))
+        show_health(root)
         out(col("=" * 72, "c"))
         for k, t in items:
             out(f"   {col(k.rjust(2), 'y', True)}  {t}")
@@ -1542,6 +1930,8 @@ def menu(root: Path) -> int:
             elif ch == "12":
                 configure_ai(root)
             elif ch == "13":
+                reinstall(root)
+            elif ch == "14":
                 if uninstall(root):
                     return 0
             else:
@@ -1564,7 +1954,7 @@ def find_root() -> Path:
     raise SystemExit("Run this from inside the CrowdGuard install folder.")
 
 
-def cmd_install(args: argparse.Namespace) -> int:
+def cmd_install(args: argparse.Namespace, offer_menu: bool = True) -> int:
     ctx = Ctx(args)
     banner()
     welcome_ai(args)
@@ -1579,9 +1969,10 @@ def cmd_install(args: argparse.Namespace) -> int:
             out("  Fix the problem and run the installer again - it will continue safely (nothing is duplicated).")
             return 1
     write_launchers(ctx)
+    remember_install(ctx.root)
     final_summary(ctx)
     open_browser(args)
-    if INTERACTIVE and yesno("Open the control menu now (stop/start parts, AI chat, uninstall)?", True):
+    if offer_menu and INTERACTIVE and yesno("Open the control menu now (stop/start parts, AI chat, uninstall)?", True):
         return menu(ctx.root)
     return 0
 
@@ -1617,7 +2008,7 @@ def cmd_status(_: argparse.Namespace) -> int:
 def main() -> int:
     global INTERACTIVE, LOG
     ap = argparse.ArgumentParser(description="CrowdGuard AI guided installer")
-    ap.add_argument("command", nargs="?", default="install", choices=["install", "menu", "start", "stop", "status", "doctor", "start-backend",
+    ap.add_argument("command", nargs="?", default=None, choices=["install", "menu", "start", "stop", "status", "doctor", "start-backend",
                                                                   "stop-backend", "start-frontend", "stop-frontend", "chat",
                                                                   "uninstall"])
     ap.add_argument("--dir", help="install folder (skips the question default)")
@@ -1632,6 +2023,8 @@ def main() -> int:
         if args.tests == "ask":
             args.tests = "full"
     try:
+        if args.command is None:
+            return gateway(args)
         if args.command == "install":
             return cmd_install(args)
         if args.command in ("status", "doctor"):
