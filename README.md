@@ -39,6 +39,51 @@ raises warnings, and explains what is happening in plain language with a Meta Mu
 
 ---
 
+## One-click install
+
+Works on Windows, macOS and Linux. You need internet; the installer does the rest and shows every step in colour.
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/roy777rajat/crowdguard-ai/main/install.ps1 | iex
+```
+
+**macOS / Linux**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/roy777rajat/crowdguard-ai/main/install.sh | bash
+```
+
+**How to follow it**
+
+1. Paste the command for your system and press Enter. If Python 3.10+ is missing it asks before installing it.
+2. *Optional:* choose the AI provider **meta** and paste your Meta API key (hidden while typing), or press Enter to skip.
+   The app works fully without a key.
+3. Press Enter to accept the install folder (`C:\CrowdGuard` or `~/CrowdGuard`) or type your own.
+4. Watch the 9 steps: folder, computer check, code, Python packages, web screens, settings, self-test, start, verify.
+   Answer **Yes** to the self-test the first time (1-3 minutes).
+5. At the end it opens **http://localhost:5173** and prints the database file, every table with its row count, the
+   URLs, process IDs, log folder and demo logins (`admin` / `demo-admin`, and so on).
+6. Later, from the install folder: `./crowdguard status | stop | start | doctor` (`.\crowdguard.cmd` on Windows).
+
+If a step fails, the installer tries built-in fixes first. If you gave a key it can also ask the AI helper to pick
+**one fix from a fixed menu**; it applies it only after you answer Yes, and it cannot run commands of its own. Only the
+error text is sent, with keys, user name and home path removed. Full details: [docs/INSTALL.md](docs/INSTALL.md).
+Notes: installing Python, Node.js or Git automatically may need admin rights; ports 8000 and 5173 must be free.
+Python 3.11+ is recommended. The sample videos are not part of the repository: copy your own `.mp4` clips into `gallery/`.
+
+### Database tables and starter data
+
+A new install creates a SQLite database (`data/crowdguard.db`) with **16 tables** and starter data: 4 locations,
+6 pandals, 18 zones, 18 cameras and 4 demo users. All of it is simulated. To understand the data without running the
+app, read [docs/database/TABLES.md](docs/database/TABLES.md) (what each table holds), [docs/database/schema.sql](docs/database/schema.sql)
+(the exact layout) and the starter content in [docs/database/csv/](docs/database/csv/). Tables such as `measurements`,
+`forecasts` and `incidents` start empty and fill while the simulator or a camera runs. Password hashes are not exported.
+Regenerate these files from your own install with `python scripts/export_db_docs.py`.
+
+---
+
 ## 1. Problem statement
 
 Durga Puja draws very large crowds to neighbourhood pandals within a few days. Crowd crushes at gates and exits are
