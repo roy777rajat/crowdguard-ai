@@ -8,7 +8,7 @@ c() { printf '\033[%sm%s\033[0m\n' "$1" "$2"; }
 c "1;36" "CrowdGuard AI - bootstrap"
 
 pick_python() {
-  for p in python3 python; do
+  for p in python3 python3.13 python3.12 python3.11 python3.10 python; do
     if command -v "$p" >/dev/null 2>&1 && "$p" -c 'import sys;sys.exit(0 if sys.version_info>=(3,10) else 1)' 2>/dev/null; then
       echo "$p"; return 0
     fi
@@ -25,7 +25,9 @@ if [ -z "$PY" ]; then
   SUDO=""; [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
   if   command -v brew    >/dev/null 2>&1; then brew install python
   elif command -v apt-get >/dev/null 2>&1; then $SUDO apt-get update && $SUDO apt-get install -y python3 python3-venv python3-pip
-  elif command -v dnf     >/dev/null 2>&1; then $SUDO dnf install -y python3 python3-pip
+  elif command -v dnf     >/dev/null 2>&1; then
+    # Amazon Linux 2023 / Fedora: the default python3 may be 3.9, so ask for a newer versioned package first
+    $SUDO dnf install -y python3.12 python3.12-pip || $SUDO dnf install -y python3.11 python3.11-pip || $SUDO dnf install -y python3 python3-pip
   else c "31" "[FAIL] No supported package manager (brew/apt/dnf). Install Python 3.10+ manually."; exit 1; fi
   PY="$(pick_python || true)"
   [ -z "$PY" ] && { c "31" "[FAIL] Python still not usable. Open a new terminal and retry."; exit 1; }
