@@ -1,0 +1,19 @@
+id,pandal_id,name,exit_capacity_per_min,active,max_people
+1,1,Entry gate,3.0,1,40
+2,1,Main pandal,3.0,1,40
+3,1,Exit gate,3.0,1,40
+4,2,Entry gate,3.0,1,40
+5,2,Main pandal,3.0,1,40
+6,2,Exit gate,3.0,1,40
+7,3,Entry gate,3.0,1,40
+8,3,Main pandal,3.0,1,40
+9,3,Exit gate,3.0,1,40
+10,4,Entry gate,3.0,1,40
+11,4,Main pandal,3.0,1,40
+12,4,Exit gate,3.0,1,40
+13,5,Entry gate,3.0,1,40
+14,5,Main pandal,3.0,1,40
+15,5,Exit gate,3.0,1,40
+16,6,Entry gate,3.0,1,40
+17,6,Main pandal,3.0,1,40
+18,6,Exit gate,3.0,1,40

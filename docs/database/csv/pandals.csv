@@ -1,0 +1,7 @@
+id,name,location,capacity,warn_pct,critical_pct,active,meta,created_at,updated_at,location_id
+1,Dakshin Sarbojanin Association,Kolkata South,120,0.7,0.9,1,{},1793447578.587269,1793447578.587269,1
+2,Lake Palli Association,Kolkata South,120,0.7,0.9,1,{},1793447578.6266892,1793447578.6266892,1
+3,Uttar Sarbojanin Association,Kolkata North,120,0.7,0.9,1,{},1793447578.6450841,1793447578.6450841,2
+4,Shyam Palli Association,Kolkata North,120,0.7,0.9,1,{},1793447578.6623762,1793447578.6623762,2
+5,Purba Sarbojanin Association,Kolkata East,120,0.7,0.9,1,{},1793447578.66889,1793447578.66889,3
+6,Paschim Sarbojanin Association,Kolkata West,120,0.7,0.9,1,{},1793447578.6753602,1793447578.6753602,4
