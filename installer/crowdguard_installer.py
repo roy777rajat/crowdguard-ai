@@ -2,7 +2,7 @@
 """CrowdGuard AI - guided installer / launcher (Windows, macOS, Linux). Standard library only.
 
     python crowdguard_installer.py            # guided install (default)
-    python crowdguard_installer.py start|stop|status|doctor   # run from the install folder
+    python crowdguard_installer.py menu|start|stop|status|stop-backend|stop-frontend|chat|uninstall
 
 How it works: steps run one by one with plain, deterministic checks. Nothing in the happy path uses AI.
 If a step fails, built-in fixes are tried first. If it still fails and an AI provider was configured, the AI
@@ -990,11 +990,12 @@ def final_summary(ctx: Ctx) -> None:
     for u, p, r in DEMO_USERS:
         sub(f"{u:<9} / {p:<14} {r}")
     out()
-    out(col("  Handy commands (run inside the install folder):", "y", True))
+    out(col("  Control menu (start/stop backend or web screens, AI chat, uninstall) - run any time:", "y", True))
     launcher = root / ("crowdguard.cmd" if IS_WIN else "crowdguard")
     sub(f"cd \"{root}\"")
     short = ".\\crowdguard.cmd" if IS_WIN else "./crowdguard"
-    sub(f"{short} status | stop | start | doctor")
+    sub(f"{short}            (opens the menu)")
+    sub(f"{short} status | start | stop | stop-backend | stop-frontend | chat | uninstall")
     sub(f"or from anywhere: \"{launcher}\" status")
     out()
 
@@ -1006,14 +1007,16 @@ def write_launchers(ctx: Ctx) -> None:
         (root / "installer").mkdir(exist_ok=True)
         shutil.copy2(Path(__file__).resolve(), target)
     sh = root / "crowdguard"
-    sh.write_text('#!/bin/sh\ncd "$(dirname "$0")"\nexec "./.venv/bin/python" installer/crowdguard_installer.py "$@"\n',
+    sh.write_text('#!/bin/sh\ncd "$(dirname "$0")"\n[ $# -eq 0 ] && set -- menu\n'
+                  'exec "./.venv/bin/python" installer/crowdguard_installer.py "$@"\n',
                   encoding="utf-8", newline="\n")
     try:
         os.chmod(sh, 0o755)
     except OSError:
         pass
     (root / "crowdguard.cmd").write_text(
-        '@echo off\r\ncd /d "%~dp0"\r\n".venv\\Scripts\\python.exe" installer\\crowdguard_installer.py %*\r\n',
+        '@echo off\r\ncd /d "%~dp0"\r\nif "%~1"=="" (\r\n  ".venv\\Scripts\\python.exe" installer\\crowdguard_installer.py menu\r\n'
+        ') else (\r\n  ".venv\\Scripts\\python.exe" installer\\crowdguard_installer.py %*\r\n)\r\n',
         encoding="utf-8", newline="")
 
 
@@ -1026,6 +1029,530 @@ def open_browser(args: argparse.Namespace) -> None:
         ok("Opened your browser")
     except Exception:
         info(f"Open http://localhost:{FRONTEND_PORT} in your browser")
+
+
+# ------------------------------------------------------------------ control menu: single services, AI chat, uninstall
+def read_pids(root: Path) -> Dict[str, int]:
+    pf = pids_file(root)
+    try:
+        return {k: int(v) for k, v in json.loads(pf.read_text()).items()} if pf.exists() else {}
+    except (ValueError, OSError):
+        return {}
+
+
+def write_pids(root: Path, pids: Dict[str, int]) -> None:
+    pf = pids_file(root)
+    if not pids:
+        pf.unlink(missing_ok=True)
+        return
+    pf.parent.mkdir(exist_ok=True)
+    pf.write_text(json.dumps(pids))
+
+
+def kill_pid(pid: int) -> bool:
+    try:
+        if IS_WIN:
+            r = subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+            return r.returncode == 0
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+
+SERVICES = {"backend": ("Backend", BACKEND_PORT), "frontend": ("Web screens", FRONTEND_PORT)}
+
+
+def stop_one(root: Path, name: str) -> None:
+    label, port = SERVICES[name]
+    pids = read_pids(root)
+    pid = pids.pop(name, None)
+    if pid is not None and kill_pid(pid):
+        ok(f"Stopped {label} (pid {pid})")
+    elif pid is not None:
+        info(f"{label} (pid {pid}) was not running")
+    else:
+        info(f"No {label} process of this install is recorded")
+    write_pids(root, pids)
+    for _ in range(10):  # give the port a moment to close
+        if not port_busy(port):
+            break
+        time.sleep(0.5)
+    if port_busy(port):
+        warn(f"Port {port} is still in use - something else (or an older run) is listening on it.")
+    else:
+        ok(f"Port {port} is free")
+
+
+def start_one(root: Path, name: str, py: str) -> bool:
+    label, port = SERVICES[name]
+    if port_busy(port):
+        warn(f"{label}: port {port} is already in use, so it is probably already running. Nothing started.")
+        return False
+    if name == "backend":
+        pid = spawn([py, "-m", "uvicorn", "backend.api.app:create_app", "--factory", "--host", "127.0.0.1",
+                     "--port", str(BACKEND_PORT)], root, root / "logs" / "backend.log")
+        url, needle = f"http://127.0.0.1:{BACKEND_PORT}/api/health", '"status"'
+    else:
+        pid = spawn([which("npm") or "npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", str(FRONTEND_PORT),
+                     "--strictPort"], root / "frontend", root / "logs" / "frontend.log")
+        url, needle = f"http://127.0.0.1:{FRONTEND_PORT}/", ""
+    pids = read_pids(root)
+    pids[name] = pid
+    write_pids(root, pids)
+    info(f"Starting {label} (pid {pid})...")
+    good = wait_for(url, 60, needle)
+    (ok if good else bad)(f"{label} " + (f"is up on port {port}" if good else "did not start - see the logs folder"))
+    return good
+
+
+def service_line(root: Path) -> str:
+    pids = read_pids(root)
+    parts = []
+    for name, (label, port) in SERVICES.items():
+        up = port_busy(port)
+        pid = f" pid {pids[name]}" if name in pids and up else ""
+        parts.append(f"{label} :{port} " + (col("RUNNING", "g", True) + pid if up else col("stopped", "r", True)))
+    return "     ".join(parts)
+
+
+def show_logs(root: Path) -> None:
+    for fname in ("backend.log", "frontend.log", "installer.log"):
+        p = root / "logs" / fname
+        out(col(f"  --- {fname} (last 12 lines) ---", "c", True))
+        if not p.exists():
+            sub("(no log yet)")
+            continue
+        for line in p.read_text(errors="replace").splitlines()[-12:]:
+            sub(line[:140])
+
+
+# ---- AI chat (talks to the running backend's own /api/assistant routes; nothing in the app is changed)
+def _post(url: str, body: bytes, ctype: str, token: str = "", timeout: float = 90) -> Tuple[int, dict]:
+    headers = {"Content-Type": ctype}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read().decode() or "{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode() or "{}")
+        except Exception:
+            return e.code, {}
+    except Exception as e:
+        return 0, {"detail": f"{type(e).__name__}: {e}"}
+
+
+def _wrap(text: str, indent: str = "    ") -> str:
+    import textwrap
+    return "\n".join(textwrap.fill(p, 92, initial_indent=indent, subsequent_indent=indent) if p.strip() else ""
+                     for p in text.splitlines())
+
+
+def read_wav_for_upload(path: Path) -> bytes:
+    """Light local check so the user gets a plain message before anything is sent."""
+    import wave
+    if not path.is_file():
+        raise StepError(f"File not found: {path}")
+    data = path.read_bytes()
+    try:
+        with wave.open(str(path), "rb") as w:
+            ch, width, rate, frames = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
+    except (wave.Error, EOFError):
+        raise StepError("That is not a readable WAV file. Use a mono, 16-bit WAV at 16 kHz or 24 kHz.")
+    if ch != 1 or width != 2 or rate not in (16000, 24000):
+        raise StepError(f"WAV must be mono, 16-bit, 16 or 24 kHz (this one: {ch} channel(s), {width * 8}-bit, {rate} Hz).")
+    if frames / float(rate) > 60:
+        raise StepError("Keep the recording under one minute.")
+    return data
+
+
+MIC_SCRIPT = r'''
+import sys, wave, threading, time
+import sounddevice as sd
+rate, path, limit = 16000, sys.argv[1], 60
+frames = []
+def cb(indata, n, t, s):
+    frames.append(bytes(indata))
+stop = threading.Event()
+threading.Thread(target=lambda: (input(), stop.set()), daemon=True).start()
+with sd.RawInputStream(samplerate=rate, channels=1, dtype="int16", callback=cb):
+    t0 = time.time()
+    while not stop.is_set() and time.time() - t0 < limit:
+        time.sleep(0.1)
+with wave.open(path, "wb") as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(b"".join(frames))
+'''
+
+
+def record_mic(py: str) -> Optional[Path]:
+    """Record from the default microphone with the optional 'sounddevice' package (installed only if you agree)."""
+    code, _ = run([py, "-c", "import sounddevice"])
+    if code != 0:
+        warn("Microphone recording needs the small 'sounddevice' package (installed inside this app's .venv only).")
+        if not yesno("Install it now?", True):
+            return None
+        code, txt = run([py, "-m", "pip", "install", "sounddevice", "--disable-pip-version-check"],
+                        label="installing sounddevice")
+        if code != 0:
+            bad("Could not install it (on Linux this may need the PortAudio library). You can still use /voice file.wav")
+            sub(txt.strip().splitlines()[-1][:110] if txt.strip() else "")
+            return None
+    path = Path(tempfile.mkdtemp(prefix="cg-mic-")) / "clip.wav"
+    out("  " + col("Recording... speak now, press Enter to stop (max 60 s).", "m", True))
+    code, txt = run([py, "-c", MIC_SCRIPT, str(path)], timeout=90)
+    if code != 0 or not path.exists():
+        bad("Recording failed (no microphone or no permission?).")
+        sub(txt.strip().splitlines()[-1][:110] if txt.strip() else "")
+        return None
+    return path
+
+
+def chat_session(root: Path) -> None:
+    py = str(venv_python(root)) if venv_python(root).exists() else sys.executable
+    b = f"http://127.0.0.1:{BACKEND_PORT}"
+    if not port_busy(BACKEND_PORT):
+        if not yesno("The backend is not running. Start it now?", True) or not start_one(root, "backend", py):
+            return
+    user = ask("Sign in as which demo user? (admin / operator / manager / auditor)", "operator").lower()
+    pw = {u: p for u, p, _ in DEMO_USERS}.get(user)
+    if not pw:
+        bad("Unknown user.")
+        return
+    code, login = http_json(b + "/api/auth/login", {"username": user, "password": pw})
+    if code != 200 or "token" not in login:
+        bad(f"Sign-in failed (HTTP {code}).")
+        return
+    tok = login["token"]
+    req = urllib.request.Request(b + "/api/assistant/capabilities", headers={"Authorization": f"Bearer {tok}"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            caps = json.loads(r.read().decode())
+    except Exception as e:
+        bad(f"Could not read the assistant status: {e}")
+        return
+    if not caps["chat"]["available"]:
+        warn(str(caps["chat"].get("reason") or "The assistant is not available."))
+        sub("Use menu option 'Turn AI features on/off' to add your Meta key, then try again.")
+        return
+    voice_ok = bool(caps["voice"]["available"])
+    out()
+    out(col(f"  AI assistant ready ({caps['chat'].get('model')}), signed in as {user}.", "g", True))
+    sub("Answers are decision support for people to review, not instructions. Data is simulated.")
+    sub("Type a question and press Enter. Commands: /voice file.wav  /mic  /new  /help  /quit")
+    if not voice_ok:
+        sub("(Voice is OFF on the server: " + str(caps["voice"].get("reason") or "") + ")")
+    for q in caps.get("suggestions", [])[:3]:
+        sub(f"Try: {q}")
+    conv: Optional[str] = None
+    mode = "text"
+    while True:
+        try:
+            line = input("\n  " + col("You>", "m", True) + " ").strip()
+        except (EOFError, KeyboardInterrupt):
+            out()
+            return
+        mode = "text"
+        if not line:
+            continue
+        low = line.lower()
+        if low in ("/quit", "/exit", "/q"):
+            return
+        if low == "/help":
+            sub("/voice <file.wav>  send a recording (mono 16-bit WAV, 16 or 24 kHz, under 1 minute)")
+            sub("/mic               record from your microphone")
+            sub("/new               start a fresh conversation     /quit  leave the chat")
+            sub("When the assistant proposes a change it waits for you: reply yes or no.")
+            continue
+        if low == "/new":
+            conv = None
+            ok("New conversation")
+            continue
+        if low.startswith("/voice") or low == "/mic":
+            if not voice_ok:
+                warn("Voice is not enabled on the server (needs CROWDGUARD_VOICE=meta and a Meta key).")
+                continue
+            try:
+                if low == "/mic":
+                    clip = record_mic(py)
+                    if clip is None:
+                        continue
+                else:
+                    arg = line[6:].strip().strip('"')
+                    if not arg:
+                        warn("Usage: /voice path\\to\\recording.wav")
+                        continue
+                    clip = Path(arg).expanduser()
+                data = read_wav_for_upload(clip)
+            except StepError as e:
+                bad(str(e))
+                continue
+            info("Transcribing (the audio is sent to Meta and is not stored)...")
+            c, res = _post(b + "/api/assistant/transcribe?language=auto", data, "audio/wav", tok)
+            if c != 200:
+                bad(f"Transcription failed: {res.get('detail') or 'HTTP ' + str(c)}")
+                continue
+            line = str(res["transcript"])
+            out("  " + col("Heard:", "c", True) + f" {line}")
+            ans = ask("Send this? [Y]es / [N]o / [E]dit", "y").lower()
+            if ans.startswith("n"):
+                continue
+            if ans.startswith("e"):
+                line = ask("Your text", line)
+            mode = "voice"
+        body = {"message": line[:1500], "input_mode": mode}
+        if conv:
+            body["conversation_id"] = conv
+        info("Thinking...")
+        c, res = _post(b + "/api/assistant/chat", json.dumps(body).encode(), "application/json", tok)
+        if c != 200:
+            bad(f"The assistant could not answer: {res.get('detail') or 'HTTP ' + str(c)}")
+            continue
+        conv = res.get("conversation_id") or conv
+        if res.get("status") != "ok":
+            warn(str(res.get("message") or f"Assistant status: {res.get('status')}"))
+            continue
+        out(col("  Assistant>", "c", True))
+        out(_wrap(str(res.get("answer") or "")))
+        used = [t["name"] for t in res.get("tools", []) if t.get("ok")]
+        if used:
+            sub("Looked at: " + ", ".join(dict.fromkeys(used)))
+        for p in res.get("pending_actions", []):
+            warn(f"Waiting for your decision: {p.get('summary')}  -> reply 'yes' to confirm or 'no' to decline")
+
+
+def set_env_values(env_path: Path, values: Dict[str, str]) -> None:
+    """Update or add KEY=value lines in .env, keeping every other line."""
+    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+    done = set()
+    for i, ln in enumerate(lines):
+        k = ln.split("=", 1)[0].strip()
+        if k in values and not ln.lstrip().startswith("#"):
+            lines[i] = f"{k}={values[k]}"
+            done.add(k)
+    lines += [f"{k}={v}" for k, v in values.items() if k not in done]
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        os.chmod(env_path, 0o600)
+    except OSError:
+        pass
+
+
+def configure_ai(root: Path) -> None:
+    env_path = root / ".env"
+    cur = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+    on = "CROWDGUARD_PROVIDER=meta" in cur
+    out(f"  AI features are currently {col('ON', 'g', True) if on else col('OFF', 'y', True)}.")
+    out("    1  Turn ON / change the Meta key")
+    out("    2  Turn OFF (app uses its built-in local explanations)")
+    out("    3  Turn voice questions ON or OFF")
+    out("    0  Back")
+    ch = ask("Choose", "0")
+    vals: Dict[str, str] = {}
+    if ch == "1":
+        key = ask("Paste your Meta API key (hidden while typing)", "", secret=True)
+        if not key:
+            info("No key entered - nothing changed")
+            return
+        AI.key, AI.provider = key.strip(), "meta"
+        good, why = AI.validate()
+        if not good:
+            bad(f"Meta did not accept that key: {why}. Nothing was saved.")
+            AI.key, AI.provider = "", "none"
+            return
+        ok("Key accepted")
+        vals = {"CROWDGUARD_PROVIDER": "meta", "META_MODEL_API_KEY": key.strip(), "META_MODEL": META_MODEL}
+    elif ch == "2":
+        vals = {"CROWDGUARD_PROVIDER": "local", "CROWDGUARD_VOICE": "off"}
+    elif ch == "3":
+        if not on:
+            warn("Voice needs the AI provider ON first (option 1).")
+            return
+        if yesno("Turn voice ON? (audio is sent to Meta, about $0.18 per hour; No turns it off)", False):
+            vals = {"CROWDGUARD_VOICE": "meta", "META_VOICE_MODE": "ENDPOINTING"}
+        else:
+            vals = {"CROWDGUARD_VOICE": "off"}
+    else:
+        return
+    set_env_values(env_path, vals)
+    ok("Settings saved to .env (private; the key is never printed or logged)")
+    py = str(venv_python(root))
+    if port_busy(BACKEND_PORT):
+        info("Restarting the backend so the change takes effect...")
+        stop_one(root, "backend")
+    start_one(root, "backend", py)
+
+
+# ---- uninstall
+def unsafe_to_delete(root: Path) -> str:
+    """Return a reason if this folder must not be deleted, else an empty string."""
+    home = Path.home().resolve()
+    if root == root.parent or root == home or root in home.parents or len(root.parts) < 2:
+        return "this looks like a system, drive or home folder"
+    if not (root / "backend" / "api" / "app.py").exists() and not (root / "installer").exists():
+        return "this does not look like a CrowdGuard install folder"
+    return ""
+
+
+def folder_size(root: Path) -> int:
+    total = 0
+    for dp, _, fs in os.walk(root):
+        for f in fs:
+            try:
+                total += os.path.getsize(os.path.join(dp, f))
+            except OSError:
+                pass
+    return total
+
+
+DELETE_SCRIPT = r'''
+import os, shutil, stat, sys, time
+root = sys.argv[1]
+def force(func, path, exc):
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except OSError:
+        pass
+time.sleep(float(sys.argv[2]))
+for _ in range(10):
+    shutil.rmtree(root, onerror=force)
+    if not os.path.exists(root):
+        break
+    time.sleep(1.5)
+'''
+
+
+def delete_tree(root: Path) -> bool:
+    """Delete the install folder. On Windows the running Python lives inside it, so a separate
+    interpreter (outside the folder) finishes the job a moment after we exit."""
+    os.chdir(root.parent)
+    if IS_WIN:
+        base = getattr(sys, "_base_executable", None) or sys.executable
+        kw: Dict[str, object] = {"creationflags": 0x00000008 | 0x00000200}
+        subprocess.Popen([base, "-c", DELETE_SCRIPT, str(root), "3"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)  # type: ignore[call-overload]
+        return True
+    import stat
+
+    def force(func: Callable[..., object], path: str, _exc: object) -> None:
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except OSError:
+            pass
+    shutil.rmtree(root, onerror=force)
+    return not root.exists()
+
+
+def uninstall(root: Path, assume_yes: bool = False) -> bool:
+    why = unsafe_to_delete(root)
+    if why:
+        bad(f"Refusing to delete {root}: {why}.")
+        return False
+    size = folder_size(root) / 1e6
+    out()
+    out(col("  UNINSTALL CROWDGUARD AI", "r", True))
+    out("  This will stop the app and permanently delete this whole folder:")
+    out(f"    {root}   ({size:.0f} MB)")
+    out("  including: the code, the private Python environment (.venv), web packages, the database and its")
+    out("  data, your settings file (.env, which holds any Meta key), logs and any videos in gallery/.")
+    out("  It does NOT remove Python, Node.js or Git from your computer, or caches kept outside this folder")
+    out("  (pip/npm caches), and it does not touch your GitHub repository. There is no undo.")
+    if not assume_yes:
+        typed = ask("Type DELETE (capital letters) to confirm, or press Enter to cancel", "")
+        if typed != "DELETE":
+            info("Cancelled - nothing was deleted.")
+            return False
+    stop_services(root, quiet=True)
+    for name, (_, port) in SERVICES.items():
+        if port_busy(port):
+            warn(f"Port {port} is still in use by something that is not tracked by this install; it is left alone.")
+    ok("Services stopped")
+    done = delete_tree(root)
+    if IS_WIN:
+        ok(f"Deleting {root} - this finishes a few seconds after this window closes.")
+    elif done:
+        ok(f"Deleted {root}")
+    else:
+        warn(f"Some files could not be deleted. Remove {root} manually.")
+    out("  Uninstalled. To install again, run the one-line install command from the README.")
+    return done
+
+
+def menu(root: Path) -> int:
+    if not INTERACTIVE:
+        bad("The menu needs a keyboard. Use: start, stop, status, stop-backend, stop-frontend, uninstall --yes")
+        return 1
+    global LOG
+    LOG = root / "logs" / "installer.log"
+    py = str(venv_python(root))
+    items = [
+        ("1", "Show status and verify everything"), ("2", "Start everything"), ("3", "Stop everything"),
+        ("4", "Start backend only"), ("5", "Stop backend only"),
+        ("6", "Start web screens only"), ("7", "Stop web screens only"),
+        ("8", "Restart everything"), ("9", "Open the app in your browser"), ("10", "Show recent log lines"),
+        ("11", "Chat with the AI assistant (text or voice)"), ("12", "Turn AI features on/off (Meta key)"),
+        ("13", "Uninstall and delete everything"), ("0", "Exit")]
+    while True:
+        out()
+        out(col("=" * 72, "c"))
+        out(col("  CrowdGuard AI - control menu", "c", True))
+        out("  " + service_line(root))
+        out(col(f"  Install folder: {root}", "d"))
+        out(col("=" * 72, "c"))
+        for k, t in items:
+            out(f"   {col(k.rjust(2), 'y', True)}  {t}")
+        ch = ask("What would you like to do? (enter a number)", "0")
+        out()
+        try:
+            if ch == "0":
+                return 0
+            elif ch == "1":
+                for name, (label, port) in SERVICES.items():
+                    (ok if port_busy(port) else bad)(f"{label} on port {port}: " + ("listening" if port_busy(port) else "not running"))
+                verify_all(root)
+            elif ch == "2":
+                start_one(root, "backend", py)
+                start_one(root, "frontend", py)
+            elif ch == "3":
+                stop_services(root)
+            elif ch == "4":
+                start_one(root, "backend", py)
+            elif ch == "5":
+                stop_one(root, "backend")
+            elif ch == "6":
+                start_one(root, "frontend", py)
+            elif ch == "7":
+                stop_one(root, "frontend")
+            elif ch == "8":
+                stop_services(root, quiet=True)
+                start_one(root, "backend", py)
+                start_one(root, "frontend", py)
+            elif ch == "9":
+                import webbrowser
+                webbrowser.open(f"http://localhost:{FRONTEND_PORT}")
+                ok(f"Opened http://localhost:{FRONTEND_PORT}")
+            elif ch == "10":
+                show_logs(root)
+            elif ch == "11":
+                chat_session(root)
+            elif ch == "12":
+                configure_ai(root)
+            elif ch == "13":
+                if uninstall(root):
+                    return 0
+            else:
+                warn("Please enter one of the numbers shown.")
+        except StepError as e:
+            bad(str(e))
+            for line in e.detail.strip().splitlines()[-4:]:
+                sub(line[:110])
+        except KeyboardInterrupt:
+            out()
+            warn("Interrupted - back to the menu.")
 
 
 # ------------------------------------------------------------------ commands
@@ -1054,6 +1581,8 @@ def cmd_install(args: argparse.Namespace) -> int:
     write_launchers(ctx)
     final_summary(ctx)
     open_browser(args)
+    if INTERACTIVE and yesno("Open the control menu now (stop/start parts, AI chat, uninstall)?", True):
+        return menu(ctx.root)
     return 0
 
 
@@ -1088,7 +1617,9 @@ def cmd_status(_: argparse.Namespace) -> int:
 def main() -> int:
     global INTERACTIVE, LOG
     ap = argparse.ArgumentParser(description="CrowdGuard AI guided installer")
-    ap.add_argument("command", nargs="?", default="install", choices=["install", "start", "stop", "status", "doctor"])
+    ap.add_argument("command", nargs="?", default="install", choices=["install", "menu", "start", "stop", "status", "doctor", "start-backend",
+                                                                  "stop-backend", "start-frontend", "stop-frontend", "chat",
+                                                                  "uninstall"])
     ap.add_argument("--dir", help="install folder (skips the question default)")
     ap.add_argument("--repo", help="git URL or path to install from (default: the GitHub repo)")
     ap.add_argument("--provider", choices=["meta", "none"], help="AI provider")
@@ -1107,6 +1638,20 @@ def main() -> int:
             LOG = find_root() / "logs" / "installer.log"
             return cmd_status(args)
         LOG = find_root() / "logs" / "installer.log"
+        if args.command == "menu":
+            return menu(find_root())
+        root = find_root()
+        py = str(venv_python(root))
+        if args.command == "chat":
+            chat_session(root)
+            return 0
+        if args.command == "uninstall":
+            return 0 if uninstall(root, assume_yes=args.yes) else 1
+        if args.command in ("start-backend", "start-frontend"):
+            return 0 if start_one(root, args.command.split("-")[1], py) else 1
+        if args.command in ("stop-backend", "stop-frontend"):
+            stop_one(root, args.command.split("-")[1])
+            return 0
         return {"start": cmd_start, "stop": cmd_stop}[args.command](args)
     except KeyboardInterrupt:
         out()
