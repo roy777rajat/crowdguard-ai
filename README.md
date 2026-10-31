@@ -39,9 +39,10 @@ raises warnings, and explains what is happening in plain language with a Meta Mu
 
 ---
 
-## One-click install
+## ⚡ One command: install, run and control
 
-Works on Windows, macOS and Linux. You need internet; the installer does the rest and shows every step in colour.
+> **Install, test, start, watch, chat with the AI, and even uninstall - all from one terminal window.**
+> Works on Windows, macOS and Linux. No manual setup, no config files to edit, no AWS or Meta account required to try it.
 
 **Windows (PowerShell)**
 
@@ -55,23 +56,167 @@ irm https://raw.githubusercontent.com/roy777rajat/crowdguard-ai/main/install.ps1
 curl -fsSL https://raw.githubusercontent.com/roy777rajat/crowdguard-ai/main/install.sh | bash
 ```
 
-**How to follow it**
+**The same command works for everyone, every time.** Nothing installed yet? It installs. Already installed? It finds
+your install and offers the **Control Room** instead, with a live health check:
 
-1. Paste the command for your system and press Enter. If Python 3.10+ is missing it asks before installing it.
-2. *Optional:* choose the AI provider **meta** and paste your Meta API key (hidden while typing), or press Enter to skip.
-   The app works fully without a key.
-3. Press Enter to accept the install folder (`C:\CrowdGuard` or `~/CrowdGuard`) or type your own.
-4. Watch the 9 steps: folder, computer check, code, Python packages, web screens, settings, self-test, start, verify.
-   Answer **Yes** to the self-test the first time (1-3 minutes).
-5. At the end it opens **http://localhost:5173** and prints the database file, every table with its row count, the
-   URLs, process IDs, log folder and demo logins (`admin` / `demo-admin`, and so on).
-6. Later, from the install folder: `./crowdguard status | stop | start | doctor` (`.\crowdguard.cmd` on Windows).
+```text
+  An install was found: C:\CrowdGuard
+  Backend :8000 RUNNING pid 4120     Web screens :5173 RUNNING pid 5388
+  ALL SYSTEMS UP  backend, database and web screens are healthy
 
-If a step fails, the installer tries built-in fixes first. If you gave a key it can also ask the AI helper to pick
-**one fix from a fixed menu**; it applies it only after you answer Yes, and it cannot run commands of its own. Only the
-error text is sent, with keys, user name and home path removed. Full details: [docs/INSTALL.md](docs/INSTALL.md).
-Notes: installing Python, Node.js or Git automatically may need admin rights; ports 8000 and 5173 must be free.
-Python 3.11+ is recommended. The sample videos are not part of the repository: copy your own `.mp4` clips into `gallery/`.
+    1  Open the Control Room (start/stop, AI chat, uninstall ...)
+    2  Install again / repair / update this install
+    3  Install a new copy in a different folder
+    0  Exit
+```
+
+If something is down you are told exactly what and what to do - start it, repair it, or contact your system administrator
+with the log folder - instead of a wall of errors:
+
+```text
+  FAILED - the system is not fully up:
+    x The backend is not running (port 8000)
+    x The web screens are not running (port 5173)
+  What to do:
+    - Choose 2 (start everything), or 4 / 6 to start one part
+    - Still failing? Contact your system administrator and share the logs in C:\CrowdGuard\logs
+```
+
+### 🧭 Part 1 - Guided install (9 steps, one at a time)
+
+| # | Step | What it proves |
+|---|---|---|
+| 1 | Choose install folder | Default `C:\CrowdGuard` or `~/CrowdGuard`; an existing install is updated and its data kept |
+| 2 | Check your computer | OS, Python 3.10+, Node.js 20+, internet (GitHub, PyPI, npm), free disk, ports 8000 and 5173. Offers to install Node.js if missing |
+| 3 | Get the code | `git clone` / `git pull` (ZIP download if Git is missing) |
+| 4 | Python environment | Private `.venv`, packages installed, import check |
+| 5 | Web screens | `npm ci`, then a full type-check and build |
+| 6 | Settings | Optional Meta key (hidden input), voice opt-in, private `.env` |
+| 7 | Self-test | The project's own backend and web tests |
+| 8 | Start the app | Backend on **8000**, web screens on **5173**, in the background |
+| 9 | Verify | Health, database file, **every table with its row count**, demo sign-in, API counts, web-to-API link |
+
+Every step is plain, deterministic code with coloured `[ OK ] / [WARN] / [FAIL]` lines - **no AI in the normal path**.
+At the end you get the URLs, process IDs, database path, log folder and demo logins, and your browser opens.
+
+### 🎛️ Part 2 - The Control Room (run `.\crowdguard.cmd` or `./crowdguard`)
+
+```text
+========================================================================
+  CrowdGuard AI - control menu
+  Backend :8000 RUNNING pid 262     Web screens :5173 RUNNING pid 272
+  Install folder: C:\CrowdGuard
+  ALL SYSTEMS UP  backend, database and web screens are healthy
+========================================================================
+    1  Show status and verify everything      8  Restart everything
+    2  Start everything                       9  Open the app in your browser
+    3  Stop everything                       10  Show recent log lines
+    4  Start backend only                    11  Chat with the AI assistant (text or voice)
+    5  Stop backend only                     12  Turn AI features on/off (Meta key)
+    6  Start web screens only                13  Install / repair / update (re-run the installer)
+    7  Stop web screens only                 14  Uninstall and delete everything
+                                              0  Exit
+```
+
+| Capability | What you get |
+|---|---|
+| **Separate start/stop** | Stop or start the **backend** and the **web screens** independently, or both together; PIDs and ports are tracked and shown |
+| **Live health banner** | `ALL SYSTEMS UP` or `FAILED` with plain-language reasons and the next action |
+| **Status that proves it** | Option 1 re-runs the real checks: health, database integrity, every table and row count, sign-in, API and proxy |
+| **AI chat in the terminal** | The same assistant as the web page: Muse Spark with read-only tools over your data, role-aware, with Yes/No/Cancel before any change |
+| **Voice, hands-free** | `/mic` listens, detects when you stop (4 seconds of silence) and sends automatically; `/voice file.wav` for recordings |
+| **Language choice** | Auto-detect by default; `/lang Bengali`, `Hindi`, `English`, `Tamil`, `Telugu`, `Kannada` to pin one |
+| **Agent thinking view** | Streams, in dim text, what the assistant really did: tools checked, data sources, timings, reasoning turns and tokens (`/think` toggles it) |
+| **AI on/off in one place** | Add, change or remove your Meta key and voice setting; the key is validated first and never printed or logged; the backend restarts for you |
+| **Repair / update** | Re-run the installer on the same folder without losing data |
+| **Safe uninstall** | See exactly what will be deleted, then confirm twice |
+
+<details>
+<summary><b>🤖 Example: AI chat with the thinking view</b> (click to expand)</summary>
+
+```text
+  AI assistant ready (muse-spark-1.3), signed in as operator.
+         Commands: /mic  /voice file.wav  /lang  /think  /new  /help  /quit
+
+  You> which cameras are offline?
+    agent steps:
+      - checked get_camera_health: ok, 41 ms
+      - data source: cameras table (via get_camera_health)
+      - 2 reasoning turn(s), muse-spark-1.3, 1180 ms, input tokens 812, output tokens 96
+  Assistant>
+    ...answer streams here, then waits for your yes/no if it proposes any change...
+
+  You> /mic
+  Speak now. It sends by itself after 4 seconds of silence (max 60 s).
+  listening... [########            ] pause 2.1s of 4s
+  You said: ...your words, in the detected language...
+```
+
+The thinking view shows the assistant's **real, recorded steps** (tools, sources, timing). The model's private reasoning
+text is not exposed by the app, so it is never invented or displayed.
+</details>
+
+<details>
+<summary><b>🗑️ Example: uninstall, with a full account of what goes</b> (click to expand)</summary>
+
+```text
+  A. INSIDE THE INSTALL FOLDER - all of this will be permanently DELETED
+     Folder: C:\CrowdGuard   (total 349.1 MB)
+      238.0 MB  C:\CrowdGuard\.venv\      - private Python environment - every Python package the app uses
+      109.1 MB  C:\CrowdGuard\frontend\   - web app source code + its node_modules packages
+      140.0 KB  C:\CrowdGuard\data\       - the SQLite database with all stored data
+      110 B     C:\CrowdGuard\.env        - your settings, including any Meta API key
+      ...
+     Python packages in the private environment (.venv) - deleted with it:
+       - fastapi>=0.110   - uvicorn[standard]>=0.29   - pydantic>=2.6   - httpx>=0.27   ...
+     Database C:\CrowdGuard\data\crowdguard.db (140.0 KB): 16 tables, 63 rows - all of it is deleted.
+
+  B. OUTSIDE THE FOLDER (your laptop / SYSTEM)
+     Will NOT be touched: Python itself, Node.js, Git, pip and npm caches, your GitHub repository
+     Installed on your SYSTEM by this installer (NOT removed automatically): the command to remove it yourself
+
+  ? Do you want to continue and delete everything listed in section A? Type yes or no
+  FINAL CONFIRMATION: this permanently deletes C:\CrowdGuard and everything in it.
+  ? Type DELETE (capital letters) to confirm
+```
+
+Nothing is deleted unless you answer **yes** *and* type **DELETE**. It refuses to run on your home folder, a drive root,
+or any folder that is not a CrowdGuard install.
+</details>
+
+### 🧰 Command reference
+
+Run inside the install folder (`.\crowdguard.cmd` on Windows, `./crowdguard` elsewhere). With no argument it opens the menu.
+
+| Command | Does |
+|---|---|
+| *(none)* | Open the Control Room |
+| `status` | Verify everything and print table counts |
+| `start` / `stop` | Start or stop backend and web screens together |
+| `start-backend` / `stop-backend` | Backend only |
+| `start-frontend` / `stop-frontend` | Web screens only |
+| `chat` | Go straight to the AI chat |
+| `uninstall` | Detailed, double-confirmed uninstall |
+
+### 🛟 When a step fails (optional AI helper)
+
+The installer first tries built-in fixes. If you gave a Meta key, it can also ask Muse Spark to pick **one fix from a
+fixed menu** (for example "clear the npm cache"). It shows you the suggestion and applies it **only after you answer
+Yes**; it can never run commands of its own. Only the error text is sent, with keys, user name and home path removed. If
+it has nothing to suggest, it now tells you why. Details: [docs/INSTALL.md](docs/INSTALL.md).
+
+### ✅ Honest status
+
+| Area | Status |
+|---|---|
+| Install, start, verify, Control Room, uninstall, AI chat (text and voice-file path) | Tested on Linux (Python 3.13) |
+| Install, start, verify | Also run on Windows (Python 3.10.0, Node 24); Python 3.11+ is recommended |
+| Real microphone input (`/mic`), Windows folder deletion, macOS | **Not yet tested** |
+| Real Meta answers and transcripts | Need your own key; mixed-language speech depends on Meta's model |
+
+Notes: installing Python, Node.js or Git automatically may need admin rights; ports 8000 and 5173 must be free. The
+sample videos are not part of the repository: copy your own `.mp4` clips into `gallery/`. The installer never touches
+the app's own code, and never stores your key anywhere except your private `.env`.
 
 ### Database tables and starter data
 
