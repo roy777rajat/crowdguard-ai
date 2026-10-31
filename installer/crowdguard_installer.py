@@ -39,6 +39,9 @@ ZIP_URL = "https://github.com/roy777rajat/crowdguard-ai/archive/refs/heads/main.
 META_URL = "https://api.meta.ai/v1/responses"
 META_MODEL = "muse-spark-1.3"
 BACKEND_PORT, FRONTEND_PORT = 8000, 5173
+# The web screens listen on this computer only. To open them from another computer (for example a cloud server),
+# start with CROWDGUARD_BIND=0.0.0.0 and allow port 5173 in your firewall for YOUR address only.
+WEB_BIND = os.environ.get("CROWDGUARD_BIND", "127.0.0.1")
 IS_WIN = os.name == "nt"
 MIN_PY, MIN_NODE = (3, 10), 20
 
@@ -660,7 +663,7 @@ def start_services(ctx_or_root: Path, py: str) -> Dict[str, int]:
     pids = {
         "backend": spawn([py, "-m", "uvicorn", "backend.api.app:create_app", "--factory",
                           "--host", "127.0.0.1", "--port", str(BACKEND_PORT)], root, root / "logs" / "backend.log"),
-        "frontend": spawn([npm, "run", "dev", "--", "--host", "127.0.0.1", "--port", str(FRONTEND_PORT),
+        "frontend": spawn([npm, "run", "dev", "--", "--host", WEB_BIND, "--port", str(FRONTEND_PORT),
                            "--strictPort"], root / "frontend", root / "logs" / "frontend.log"),
     }
     pids_file(root).parent.mkdir(exist_ok=True)
@@ -1222,7 +1225,7 @@ def start_one(root: Path, name: str, py: str) -> bool:
                      "--port", str(BACKEND_PORT)], root, root / "logs" / "backend.log")
         url, needle = f"http://127.0.0.1:{BACKEND_PORT}/api/health", '"status"'
     else:
-        pid = spawn([which("npm") or "npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", str(FRONTEND_PORT),
+        pid = spawn([which("npm") or "npm", "run", "dev", "--", "--host", WEB_BIND, "--port", str(FRONTEND_PORT),
                      "--strictPort"], root / "frontend", root / "logs" / "frontend.log")
         url, needle = f"http://127.0.0.1:{FRONTEND_PORT}/", ""
     pids = read_pids(root)
@@ -1383,6 +1386,11 @@ def record_mic(py: str) -> Optional[Path]:
             bad("Could not install it (on Linux this may need the PortAudio library). You can still use /voice file.wav")
             sub(txt.strip().splitlines()[-1][:110] if txt.strip() else "")
             return None
+    code, _ = run([py, "-c", "import sounddevice as sd; sd.query_devices(kind='input')"])
+    if code != 0:
+        bad("No microphone is available on this computer (a cloud server has no sound card).")
+        sub("Use the app in your browser for voice, or record a WAV on your own computer and use /voice file.wav")
+        return None
     path = Path(tempfile.mkdtemp(prefix="cg-mic-")) / "clip.wav"
     out("  " + col("Speak now. It sends by itself after 4 seconds of silence (max 60 s).", "m", True))
     try:
