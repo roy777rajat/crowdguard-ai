@@ -473,6 +473,19 @@ def move_aside_untracked(root: Path, git_output: str) -> List[str]:
     return moved
 
 
+def rmtree_force(path: Path) -> None:
+    """Delete a folder even if it holds read-only files (git marks its pack files read-only; Windows refuses)."""
+    import stat
+
+    def _fix(func: Callable[..., object], p: str, _exc: object) -> None:
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+    shutil.rmtree(path, onerror=_fix)
+
+
 def step_code(ctx: Ctx) -> None:
     repo = ctx.args.repo or REPO_URL
     root = ctx.root
@@ -490,16 +503,19 @@ def step_code(ctx: Ctx) -> None:
             raise StepError("git pull failed (you may have local edits).", txt)
     elif git and not (root / "backend").exists():
         info(f"Downloading the code from {repo}")
-        tmp = Path(tempfile.mkdtemp(prefix="cg-clone-"))
+        # Clone INSIDE the install folder: moving files across drives (e.g. temp on C:, install on E:) turns a
+        # rename into copy+delete, and Windows cannot delete git's read-only files.
+        tmp = Path(tempfile.mkdtemp(prefix=".cg-clone-", dir=str(root)))
         code, txt = run([git, "clone", "--depth", "1", repo, str(tmp / "r")], label="git clone")
         if code != 0:
+            rmtree_force(tmp)
             raise StepError("git clone failed.", txt)
         for item in (tmp / "r").iterdir():
             dest = root / item.name
             if dest.exists():
                 continue
             shutil.move(str(item), str(dest))
-        shutil.rmtree(tmp, ignore_errors=True)
+        rmtree_force(tmp)
     elif not (root / "backend").exists():
         info("Git is not installed - downloading a ZIP of the code instead")
         zpath = root / "download.zip"
