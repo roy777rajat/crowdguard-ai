@@ -588,6 +588,10 @@ def step_settings(ctx: Ctx) -> None:
             ok("Voice: ON")
         else:
             lines += ["CROWDGUARD_VOICE=off"]
+        if yesno("Also turn on people counting for gallery videos (Meta SAM 3.1; video frames are sent to Meta; "
+                 "~$0.0025 per frame)?", False):
+            lines += ["CROWDGUARD_DETECTOR=sam31"]
+            ok("People counting (SAM 3.1): ON")
         ctx.summary["AI provider"] = "Meta (Muse Spark)"
     else:
         lines += ["CROWDGUARD_PROVIDER=local", "CROWDGUARD_VOICE=off"]
@@ -601,7 +605,13 @@ def step_settings(ctx: Ctx) -> None:
     ok(f"Settings saved to {env_path} (private; git-ignored)")
     (ctx.root / "data").mkdir(exist_ok=True)
     (ctx.root / "gallery").mkdir(exist_ok=True)
-    mp4 = list((ctx.root / "gallery").glob("*.mp4"))
+    gal = ctx.root / "gallery"
+    if not list(gal.glob("*.mp4")):
+        src = ask("Folder with your existing .mp4 clips to copy into the gallery (Enter to skip)", "")
+        if src and Path(src).expanduser().is_dir():
+            for f in Path(src).expanduser().glob("*.mp4"):
+                shutil.copy2(f, gal / f.name)
+    mp4 = list(gal.glob("*.mp4"))
     info(f"Videos: {len(mp4)} .mp4 file(s) in {ctx.root / 'gallery'} - copy your own clips there any time")
     ctx.summary["Videos (gallery)"] = f"{len(mp4)} clip(s) in {ctx.root / 'gallery'}"
 
@@ -1630,6 +1640,7 @@ def configure_ai(root: Path) -> None:
     out("    1  Turn ON / change the Meta key")
     out("    2  Turn OFF (app uses its built-in local explanations)")
     out("    3  Turn voice questions ON or OFF")
+    out("    4  Turn people counting for gallery videos (SAM 3.1) ON or OFF")
     out("    0  Back")
     ch = ask("Choose", "0")
     vals: Dict[str, str] = {}
@@ -1656,6 +1667,14 @@ def configure_ai(root: Path) -> None:
             vals = {"CROWDGUARD_VOICE": "meta", "META_VOICE_MODE": "ENDPOINTING"}
         else:
             vals = {"CROWDGUARD_VOICE": "off"}
+    elif ch == "4":
+        if not on:
+            warn("Counting needs the Meta key ON first (option 1).")
+            return
+        if yesno("Turn SAM 3.1 counting ON? (video frames are sent to Meta, ~$0.0025 per frame; No turns it off)", False):
+            vals = {"CROWDGUARD_DETECTOR": "sam31"}
+        else:
+            vals = {"CROWDGUARD_DETECTOR": "simulated"}
     else:
         return
     set_env_values(env_path, vals)
