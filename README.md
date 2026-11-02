@@ -7,6 +7,11 @@
 <p align="center"><b>Crowd-safety decision support for Durga Puja pandals</b><br>
 Camera snapshots · people counting · crowd insights · an AI assistant</p>
 
+## Watch CrowdGuard AI
+
+1. [Watch the project demo](https://youtu.be/rkOlrEYQvE8)
+2. [Watch how to install CrowdGuard AI](https://youtu.be/UBskITcGP8o)
+
 <p align="center">
   <a href="docs/INSTALL.md">Install and control CrowdGuard</a> ·
   <a href="docs/assistant-tools.md">Assistant tools and permissions</a> ·
