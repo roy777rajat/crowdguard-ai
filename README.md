@@ -9,10 +9,10 @@ Camera snapshots · people counting · crowd insights · an AI assistant</p>
 
 ## Watch CrowdGuard AI
 
-1. [Watch the project demo](https://youtu.be/rkOlrEYQvE8)
+1. (https://youtu.be/rkOlrEYQvE8)
 2. [Watch how to install CrowdGuard AI](https://youtu.be/UBskITcGP8o)
 
-**Hashtags:** #CrowdGuardAI #CrowdSafety #CrowdManagement #CrowdMonitoring #PublicSafety #EventSafety #EventManagement #SmartCity #AI #ArtificialIntelligence #ComputerVision #VideoAnalytics #PeopleCounting #MetaAI #SAMD31 #MuseSpark #VoiceAI #SpeechToText #DurgaPuja #Kolkata #OpenSource #Python #FastAPI #React #SQLite #SafetyTechnology
+
 
 <p align="center">
   <a href="docs/INSTALL.md">Install and control CrowdGuard</a> ·
