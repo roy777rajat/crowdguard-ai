@@ -4,13 +4,22 @@
   <img src="readme-images/crowdguard-banner.gif" alt="Animated CrowdGuard AI flow: sampled video frames, SAM 3.1, Muse Spark and voice transcription" width="100%" />
 </p>
 
-<p align="center"><b>Crowd-safety decision support for Durga Puja pandals</b><br>
+<p align="center"><b>AI-powered crowd intelligence for safer, better-informed event operations</b><br>
 Camera snapshots · people counting · crowd insights · an AI assistant</p>
 
 ## Watch CrowdGuard AI
 
 1. [Demo Link](https://www.loom.com/share/fd174cc6833e4e998231e3e2b94820ec)
 2. [Watch how to install CrowdGuard AI](https://www.loom.com/share/d2f42b7f2de94120a14397a4e4d8f76a)
+
+## About
+
+CrowdGuard AI brings Meta's vision, language and speech capabilities together for crowd-monitoring workflows.
+Meta SAM 3.1 detects people in sampled video frames, Muse Spark explains recorded data and powers a
+permission-aware assistant, and Muse Voice Transcribe turns spoken questions into editable text. Camera workflows,
+incident management and deterministic forecasting connect these model capabilities to operational context—helping
+teams understand crowd conditions while keeping model-generated explanations separate from measured counts and
+forecasts. Meta integrations are opt-in.
 
 
 
