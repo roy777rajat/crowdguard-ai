@@ -9,8 +9,8 @@ Camera snapshots · people counting · crowd insights · an AI assistant</p>
 
 ## Watch CrowdGuard AI
 
-1. [Demo Link](https://youtu.be/rkOlrEYQvE8)
-2. [Watch how to install CrowdGuard AI](https://youtu.be/UBskITcGP8o)
+1. [Demo Link](https://www.loom.com/share/fd174cc6833e4e998231e3e2b94820ec)
+2. [Watch how to install CrowdGuard AI](https://www.loom.com/share/d2f42b7f2de94120a14397a4e4d8f76a)
 
 
 
