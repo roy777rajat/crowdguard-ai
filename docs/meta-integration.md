@@ -1,10 +1,13 @@
 # Meta Model API integration
 
-Status: **implemented for text explanations, off by default, not yet run against the live API.**
-Code: `backend/integrations/meta_adapter.py`, selection in `backend/config.py`, prompt in
-`backend/observability/prompts.py`, pricing and retry rules in `backend/observability/llm.py`.
+Status: **Muse Spark explanations and tool-calling chat, SAM 3.1 frame detection, and Muse Voice transcription are
+implemented and opt-in. Automated integration tests use mocked Meta responses; this build has not had a full
+end-to-end live validation.**
+Code: `backend/integrations/meta_adapter.py`, `backend/vision/detector.py`, `backend/assistant/transcribe.py`,
+selection in `backend/config.py`, prompt in `backend/observability/prompts.py`, pricing and retry rules in
+`backend/observability/llm.py`.
 
-## What it does
+## Muse Spark explanations
 
 When enabled, each new incident (and each "Explain current state" click) sends Meta one request containing a fixed
 instruction plus a JSON summary of recorded, simulated measurements (pandal name, occupancy, capacity, risk,
@@ -23,6 +26,18 @@ Put them in `E:\dev\crowdguard-ai\.env` (git-ignored) or in real environment var
 If the flag is set but the key is missing or the model name is invalid, the app falls back to the local template
 provider and says why under Settings. The key is never logged, stored in the database, or returned by any API.
 Optional: `META_MODEL` = `muse-spark-1.3` (default), `muse-spark-1.2` or `muse-spark-1.1`.
+
+## SAM 3.1 people detection
+
+Set `CROWDGUARD_DETECTOR=sam31` and configure `META_MODEL_API_KEY` (or `MODEL_API_KEY`). This detector setting is
+independent of `CROWDGUARD_PROVIDER`; the app only sends frames when the real detector is selected. The browser
+samples JPEG frames from a playing camera video and posts them to the authenticated
+`POST /api/vision/cameras/{camera_id}/analyze` endpoint. The backend forwards each frame as an `input_image` to
+SAM 3.1 with the `"person"` prompt. It does not upload the entire video or use Meta real-time video streaming.
+
+SAM 3.1 costs about $0.0025 per image. The camera wall enforces a configurable estimated-spend budget and a
+server-side minimum frame interval. Obtain venue and legal approval before sending imagery of people to Meta.
+With the simulated detector, no frames leave the computer.
 
 ## Verified against Meta's documentation (read 25 Oct 2026)
 
@@ -56,14 +71,16 @@ Sources: https://dev.meta.ai/docs/overview, /docs/models, /docs/protocols/respon
   fast simulation across many pandals still makes real, billable calls. Keep a budget set.
 - `store=false` asks Meta not to retain the response; Meta's own logging and retention terms still apply.
 
-## Not done yet
+## Current boundaries
 
-- SAM 3.1 (`sam-3.1`): needs real images or video, a privacy review and a validated counting pipeline. Meta's docs
-  show it is called through the same Responses endpoint, with media uploaded via `POST /v1/files`, but the request
-  body was not available in the pages read. Do not feed segmentation counts into alarms until validated against
-  ground truth.
-- Streaming, tool calling, image or video input, and prompt caching are not used.
-- A live test: the adapter has only been tested against a mocked HTTP transport.
+- SAM counts people in each sampled frame; it does not track identities or calculate entry/exit flow.
+- Muse Spark does not receive camera images or video. It can only use the data and server-side tools supplied by
+  CrowdGuard; any proposed write requires the user's confirmation.
+- Voice uses recorded WAV clips through the REST transcription endpoint. The realtime speech WebSocket API is not
+  used. The raw audio is processed in memory and is not stored by the app.
+- Muse Spark image/video input and prompt caching are not used. Assistant replies are not streamed.
+- Automated integration tests use mocked Meta responses. A limited Muse Spark call returned an incomplete response;
+  no full live end-to-end validation has been completed.
 
 ## AI Assistant (Muse Spark tool calling) and Muse Voice Transcribe
 
@@ -73,7 +90,6 @@ Added on 2026-10-26. Details, the full tool list and limits are in [assistant-to
   categories and `store:false` stance). It sends flat function tools with `tool_choice:"auto"` and
   `include:["reasoning.encrypted_content"]` so reasoning items can be replayed statelessly.
 * `backend/assistant/transcribe.py` calls `POST https://api.meta.ai/v1/asr/transcribe` (multipart `request` + WAV `audio`,
-  mode `ENDPOINTING` by default so long questions with pauses are joined; `PUSH_TO_TALK` via `META_VOICE_MODE`). The realtime WebSocket API is documented by Meta but not used.
+  mode `PUSH_TO_TALK`). The realtime WebSocket API is documented by Meta but not used.
 * Every assistant model step is logged in the model-call table (`operation = assistant_chat`) with latency, tokens
   and estimated cost; tokens/cost stay `null` when Meta does not report them. Prompts and audio are not stored.
-* Verified against mocked Meta responses only. It has not been exercised against the live Meta API in this build.
